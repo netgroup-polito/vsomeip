@@ -455,6 +455,17 @@ endif()
 
 
 ##############################################################################
+# Benchmarks section
+##############################################################################
+
+if(BENCH_IP_MASTER AND BENCH_IP_SLAVE)
+    add_custom_target(build_benchmarks)
+    add_subdirectory(benchmarks EXCLUDE_FROM_ALL)
+else()
+    message(WARNING "BENCH_IP_MASTER and/or BENCH_IP_SLAVE not set. Benchmarks cannot be built")
+endif()
+
+##############################################################################
 # Test section
 ##############################################################################
 

@@ -1,0 +1,49 @@
+{
+   "unicast" : "127.0.0.1",
+   "netmask" : "255.255.255.0",
+   "logging" : 
+   {
+      "level" : "debug",
+      "console" : "true",
+      "file" : 
+      {
+         "enable" : "true",
+         "path" : "/var/log/vsomeip.log"
+      },
+
+      "dlt" : "true"
+   },
+
+   "applications" : 
+   [
+      {
+         "name" : "local_payload_test_client",
+         "id" : "0x1343"
+      }
+   ],
+   "services" : 
+   [ 
+   ],
+
+   "routing" : "local_payload_test_service",
+   "service-discovery" : 
+   {
+      "enable" : "false",
+      "multicast" : "224.0.0.1",
+      "port" : "30491",
+      "protocol" : "udp"
+   },
+   "service-security" :
+   {
+      "certificates-path" : "@CRYPTO_CERTIFICATES_FOLDER_RELATIVE@",
+      "root-certificate-fingerprint" : "@CRYPTO_ROOT_CA_CERTIFICATE@",
+      "private-key-path" : "@CRYPTO_CHOSEN_KEY_RELATIVE@",
+      "certificate-fingerprint" : "@CRYPTO_CHOSEN_CERTIFICATE@"
+   },
+   "configuration-security" :
+   {
+      "signature-algorithm" : "rsa2048-sha256",
+      "certificate-fingerprint" : "@CRYPTO_CONFIGURATION_SIGNATURE_CERTIFICATE@",
+      "signature" : "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+   }
+}

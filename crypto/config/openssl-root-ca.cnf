@@ -1,0 +1,18 @@
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+req_extensions = req_ext
+distinguished_name = dn
+
+[ dn ]
+C=IT
+ST=Italy
+L=Turin
+O=vsomeip
+OU=None
+emailAddress=None
+CN=RootCA
+
+[ req_ext ]
+basicConstraints = CA:TRUE

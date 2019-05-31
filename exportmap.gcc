@@ -24,7 +24,7 @@ global:
         *vsomeip::message_header_impl;
         *vsomeip::message_header_impl::*;
         *vsomeip::payload_impl;
-	*vsomeip::payload_impl::*;
+        *vsomeip::payload_impl::*;
         *vsomeip::runtime;
         vsomeip::runtime::get*;
         vsomeip::runtime::set_property*;
@@ -42,6 +42,10 @@ global:
         vsomeip::utility::is*;
         *vsomeip::plugin_manager;
         vsomeip::plugin_manager::*;
+        vsomeip::operator*;
+        vsomeip::digital_certificate::*;
+        vsomeip::rsa_digital_certificate::get_certificate*;
+        vsomeip::asymmetric_crypto_public::;
     }; 
     vsomeip_plugin_init;
 local:

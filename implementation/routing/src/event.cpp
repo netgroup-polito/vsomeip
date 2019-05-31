@@ -3,6 +3,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include <algorithm>
 #include <iomanip>
 
 #include <vsomeip/constants.hpp>
@@ -16,57 +17,50 @@
 #include "../../configuration/include/internal.hpp"
 #include "../../logging/include/logger.hpp"
 #include "../../message/include/payload_impl.hpp"
+#include "../../security/include/message_serializer.hpp"
 
 namespace vsomeip {
 
-event::event(routing_manager *_routing, bool _is_shadow) :
+event::event(routing_manager *_routing, service_t _service, instance_t _instance, event_t _event, bool _is_shadow) :
         routing_(_routing),
-        message_(runtime::get()->create_notification()),
-        is_field_(false),
+        message_(),
+        service_(_service),
+        instance_(_instance),
+        event_(_event),
+        major_version_(0),
         cycle_timer_(_routing->get_io()),
         cycle_(std::chrono::milliseconds::zero()),
         change_resets_cycle_(false),
         is_updating_on_change_(true),
+        is_field_(false),
         is_set_(false),
         is_provided_(false),
         is_shadow_(_is_shadow),
         is_cache_placeholder_(false),
         epsilon_change_func_(std::bind(&event::compare, this,
-                std::placeholders::_1, std::placeholders::_2)),
+                                       std::placeholders::_1, std::placeholders::_2)),
         is_reliable_(false),
         remote_notification_pending_(false) {
 }
 
 service_t event::get_service() const {
-    return (message_->get_service());
-}
-
-void event::set_service(service_t _service) {
-    message_->set_service(_service);
+    return service_;
 }
 
 instance_t event::get_instance() const {
-    return (message_->get_instance());
-}
-
-void event::set_instance(instance_t _instance) {
-    message_->set_instance(_instance);
-}
-
-major_version_t event::get_version() const {
-    return message_->get_interface_version();
-}
-
-void event::set_version(major_version_t _major) {
-    message_->set_interface_version(_major);
+    return instance_;
 }
 
 event_t event::get_event() const {
-    return (message_->get_method());
+    return event_;
 }
 
-void event::set_event(event_t _event) {
-    message_->set_method(_event); // TODO: maybe we should check for the leading 0-bit
+major_version_t event::get_version() const {
+    return major_version_;
+}
+
+void event::set_version(major_version_t _major) {
+    major_version_ = _major;
 }
 
 bool event::is_field() const {
@@ -89,19 +83,89 @@ bool event::is_set() const {
     return is_set_;
 }
 
-const std::shared_ptr<payload> event::get_payload() const {
+bool event::is_cached_payload() const {
     std::lock_guard<std::mutex> its_lock(mutex_);
-    return (message_->get_payload());
+    return static_cast<bool>(cached_payload_);
 }
 
-bool event::set_payload_dont_notify(const std::shared_ptr<payload> &_payload) {
+const std::vector<byte_t> event::get_message() const {
+    std::lock_guard<std::mutex> its_lock(mutex_);
+    return std::vector<byte_t>(message_);
+}
+
+const std::shared_ptr<payload> event::get_cached_payload() const {
+    std::lock_guard<std::mutex> its_lock(mutex_);
+    return cached_payload_;
+}
+
+void event::set_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                        std::shared_ptr<payload> &_payload, bool _force, bool _flush) {
+
+    std::lock_guard<std::mutex> its_lock(mutex_);
+    if (is_provided_) {
+        if (set_payload_helper(_payload, _force)) {
+            if (reset_payload(_message_serializer, _payload)) {
+                if (is_updating_on_change_) {
+                    if (change_resets_cycle_)
+                        stop_cycle();
+
+                    notify(_flush);
+
+                    if (change_resets_cycle_)
+                        start_cycle();
+                }
+            }
+        }
+    } else {
+        VSOMEIP_INFO << "Can't set payload for event " << std::hex
+                     << get_event() << " as it isn't provided";
+    }
+}
+
+void event::set_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                        std::shared_ptr<payload> &_payload, client_t _client, bool _force, bool _flush) {
+
+    std::lock_guard<std::mutex> its_lock(mutex_);
+    if (is_provided_) {
+        if (set_payload_helper(_payload, _force)) {
+            if (reset_payload(_message_serializer, _payload)) {
+                if (is_updating_on_change_) {
+                    notify_one(_client, _flush);
+                }
+            }
+        }
+    } else {
+        VSOMEIP_INFO << "Can't set payload for event " << std::hex
+                     << get_event() << " as it isn't provided";
+    }
+}
+
+void event::set_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                        std::shared_ptr<payload> &_payload, const std::shared_ptr<endpoint_definition> &_target,
+                        bool _force, bool _flush) {
+
+    std::lock_guard<std::mutex> its_lock(mutex_);
+    if (is_provided_) {
+        if (set_payload_helper(_payload, _force)) {
+            if (reset_payload(_message_serializer, _payload)) {
+                if (is_updating_on_change_) {
+                    notify_one(_target, _flush);
+                }
+            }
+        }
+    } else {
+        VSOMEIP_INFO << "Can't set message for event " << std::hex
+                     << get_event() << " as it isn't provided";
+    }
+}
+
+bool event::set_message_dont_notify(const byte_t *_data, length_t _size) {
     std::lock_guard<std::mutex> its_lock(mutex_);
     if (is_cache_placeholder_) {
-        reset_payload(_payload);
-        is_set_ = true;
+        reset_message(_data, _size);
     } else {
-        if (set_payload_helper(_payload, false)) {
-            reset_payload(_payload);
+        if (set_message_helper(_data, _size, false)) {
+            reset_message(_data, _size);
         } else {
             return false;
         }
@@ -109,12 +173,12 @@ bool event::set_payload_dont_notify(const std::shared_ptr<payload> &_payload) {
     return true;
 }
 
-void event::set_payload(const std::shared_ptr<payload> &_payload,
-        bool _force, bool _flush) {
+void event::set_message(const byte_t *_data, length_t _size,
+                        bool _force, bool _flush) {
     std::lock_guard<std::mutex> its_lock(mutex_);
     if (is_provided_) {
-        if (set_payload_helper(_payload, _force)) {
-            reset_payload(_payload);
+        if (set_message_helper(_data, _size, _force)) {
+            reset_message(_data, _size);
             if (is_updating_on_change_) {
                 if (change_resets_cycle_)
                     stop_cycle();
@@ -126,56 +190,51 @@ void event::set_payload(const std::shared_ptr<payload> &_payload,
             }
         }
     } else {
-        VSOMEIP_INFO << "Can't set payload for event " << std::hex
-                << message_->get_method() << " as it isn't provided";
+        VSOMEIP_INFO << "Can't set message for event " << std::hex
+                     << get_event() << " as it isn't provided";
     }
 }
 
-void event::set_payload(const std::shared_ptr<payload> &_payload, client_t _client,
-            bool _force, bool _flush) {
+void event::set_message(const byte_t *_data, length_t _size, client_t _client,
+                        bool _force, bool _flush) {
     std::lock_guard<std::mutex> its_lock(mutex_);
     if (is_provided_) {
-        if (set_payload_helper(_payload, _force)) {
-            reset_payload(_payload);
+        if (set_message_helper(_data, _size, _force)) {
+            reset_message(_data, _size);
             if (is_updating_on_change_) {
                 notify_one(_client, _flush);
             }
         }
     } else {
-        VSOMEIP_INFO << "Can't set payload for event " << std::hex
-                << message_->get_method() << " as it isn't provided";
+        VSOMEIP_INFO << "Can't set message for event " << std::hex
+                     << get_event() << " as it isn't provided";
     }
 }
 
-void event::set_payload(const std::shared_ptr<payload> &_payload,
-            const std::shared_ptr<endpoint_definition> _target,
-            bool _force, bool _flush) {
+void event::set_message(const byte_t *_data, length_t _size,
+                        const std::shared_ptr<endpoint_definition> _target,
+                        bool _force, bool _flush) {
     std::lock_guard<std::mutex> its_lock(mutex_);
     if (is_provided_) {
-        if (set_payload_helper(_payload, _force)) {
-            reset_payload(_payload);
+        if (set_message_helper(_data, _size, _force)) {
+            reset_message(_data, _size);
             if (is_updating_on_change_) {
                 notify_one(_target, _flush);
             }
         }
     } else {
-        VSOMEIP_INFO << "Can't set payload for event " << std::hex
-                << message_->get_method() << " as it isn't provided";
+        VSOMEIP_INFO << "Can't set message for event " << std::hex
+                     << get_event() << " as it isn't provided";
     }
 }
 
-void event::unset_payload(bool _force) {
+void event::unset_message(bool _force) {
     std::lock_guard<std::mutex> its_lock(mutex_);
-    if (_force) {
+    if (_force || is_provided_) {
         is_set_ = false;
         stop_cycle();
-        message_->set_payload(std::make_shared<payload_impl>());
-    } else {
-        if (is_provided_) {
-            is_set_ = false;
-            stop_cycle();
-            message_->set_payload(std::make_shared<payload_impl>());
-        }
+        message_.clear();
+        cached_payload_.reset();
     }
 }
 
@@ -246,57 +305,90 @@ void event::update_cbk(boost::system::error_code const &_error) {
         notify(true);
         std::function<void(boost::system::error_code const &)> its_handler =
                 std::bind(&event::update_cbk, shared_from_this(),
-                        std::placeholders::_1);
+                          std::placeholders::_1);
         cycle_timer_.async_wait(its_handler);
     }
 }
 
 void event::notify(bool _flush) {
     if (is_set_) {
-        routing_->send(VSOMEIP_ROUTING_CLIENT, message_, _flush);
+        routing_->send(VSOMEIP_ROUTING_CLIENT, message_.data(), static_cast<length_t>(message_.size()),
+                       get_instance(), _flush, is_reliable_);
     } else {
-        VSOMEIP_INFO << "Notify event " << std::hex << message_->get_method()
+        VSOMEIP_INFO << "Notify event " << std::hex << get_event()
                 << "failed. Event payload not set!";
     }
 }
 
 void event::notify_one(const std::shared_ptr<endpoint_definition> &_target, bool _flush) {
     if (is_set_) {
-        routing_->send_to(_target, message_, _flush);
+        routing_->send_to(_target, message_.data(), static_cast<length_t>(message_.size()),
+                          get_instance(), _flush);
     } else {
-        VSOMEIP_INFO << "Notify one event " << std::hex << message_->get_method()
-                << "failed. Event payload not set!";
+        VSOMEIP_INFO << "Notify one event " << std::hex << get_event()
+                     << "failed. Event payload not set!";
     }
 }
 
 void event::notify_one(client_t _client, bool _flush) {
     if (is_set_) {
-        routing_->send(_client, message_, _flush);
+        routing_->send(_client, message_.data(), static_cast<length_t>(message_.size()),
+                       get_instance(), _flush, is_reliable_);
     } else {
-        VSOMEIP_INFO << "Notify one event " << std::hex << message_->get_method()
-                << " to client " << _client << " failed. Event payload not set!";
+        VSOMEIP_INFO << "Notify one event " << std::hex << get_event()
+                     << " to client " << _client << " failed. Event payload not set!";
     }
 }
 
 bool event::set_payload_helper(const std::shared_ptr<payload> &_payload, bool _force) {
-    std::shared_ptr<payload> its_payload = message_->get_payload();
-    bool is_change(!is_field_);
-    if (is_field_) {
-        is_change = _force || epsilon_change_func_(its_payload, _payload);
-    }
-    return is_change;
+    return !is_field_ || !cached_payload_ || _force || epsilon_change_func_(cached_payload_, _payload);
 }
 
-void event::reset_payload(const std::shared_ptr<payload> &_payload) {
-    std::shared_ptr<payload> its_new_payload
-        = runtime::get()->create_payload(
-              _payload->get_data(), _payload->get_length());
-    message_->set_payload(its_new_payload);
+bool event::set_message_helper(const byte_t *_data, length_t _size, bool _force) {
+    return !is_field_ || _force || message_.size() != _size || !std::equal(message_.begin(), message_.end(), _data);
+}
+
+void event::reset_message(const byte_t *_data, length_t _size) {
+
+    message_.assign(_data, _data + _size);
+    cached_payload_.reset();
 
     if (!is_set_)
         start_cycle();
 
     is_set_ = true;
+}
+
+bool event::reset_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                          const std::shared_ptr<payload> &_payload) {
+
+    cached_payload_ = runtime::get()->create_payload(_payload->get_data(), _payload->get_length());
+    if (!_message_serializer) {
+        return false;
+    }
+
+    std::shared_ptr<message> its_notification = runtime::get()->create_notification();
+    its_notification->set_service(service_);
+    its_notification->set_instance(instance_);
+    its_notification->set_method(event_);
+    its_notification->set_interface_version(0);
+    its_notification->set_payload(_payload);
+
+    if (!_message_serializer->serialize_message(its_notification.get(), message_)) {
+        VSOMEIP_INFO << "Serialization failed for event" << std::hex << get_event();
+        cached_payload_.reset();
+        if (is_set_) {
+            stop_cycle();
+            is_set_ = false;
+        }
+        return false;
+    }
+
+    if (!is_set_)
+        start_cycle();
+
+    is_set_ = true;
+    return true;
 }
 
 void event::add_ref(client_t _client, bool _is_provided) {
@@ -394,7 +486,7 @@ bool event::has_ref(client_t _client, bool _is_provided) {
     if (its_client != refs_.end()) {
         auto its_provided = its_client->second.find(_is_provided);
         if (its_provided != its_client->second.end()) {
-            if(its_provided->second > 0) {
+            if (its_provided->second > 0) {
                 return true;
             }
         }
@@ -423,7 +515,7 @@ void event::start_cycle() {
         cycle_timer_.expires_from_now(cycle_);
         std::function<void(boost::system::error_code const &)> its_handler =
                 std::bind(&event::update_cbk, shared_from_this(),
-                        std::placeholders::_1);
+                          std::placeholders::_1);
         cycle_timer_.async_wait(its_handler);
     }
 }
@@ -436,7 +528,7 @@ void event::stop_cycle() {
 }
 
 bool event::compare(const std::shared_ptr<payload> &_lhs,
-        const std::shared_ptr<payload> &_rhs) const {
+                    const std::shared_ptr<payload> &_rhs) const {
     bool is_change = (_lhs->get_length() != _rhs->get_length());
     if (!is_change) {
         std::size_t its_pos = 0;

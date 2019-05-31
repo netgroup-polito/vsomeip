@@ -25,39 +25,45 @@ namespace vsomeip {
 class endpoint;
 class endpoint_definition;
 class message;
+class message_serializer;
 class payload;
 class routing_manager;
 
 class event: public std::enable_shared_from_this<event> {
 public:
-    event(routing_manager *_routing, bool _is_shadow = false);
+    event(routing_manager *_routing, service_t _service, instance_t _instance,
+          event_t _event, bool _is_shadow = false);
 
     service_t get_service() const;
-    void set_service(service_t _service);
-
     instance_t get_instance() const;
-    void set_instance(instance_t _instance);
+    event_t get_event() const;
 
     major_version_t get_version() const;
     void set_version(major_version_t _major);
 
-    event_t get_event() const;
-    void set_event(event_t _event);
+    const std::vector<byte_t> get_message() const;
+    const std::shared_ptr<payload> get_cached_payload() const;
 
-    const std::shared_ptr<payload> get_payload() const;
+    void set_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                     std::shared_ptr<payload> &_payload, bool _force, bool _flush);
+    void set_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                     std::shared_ptr<payload> &_payload, client_t _client, bool _force, bool _flush);
+    void set_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                     std::shared_ptr<payload> &_payload, const std::shared_ptr<endpoint_definition> &_target,
+                     bool _force, bool _flush);
 
-    void set_payload(const std::shared_ptr<payload> &_payload,
+    void set_message(const byte_t *_data, length_t _size,
             const client_t _client, bool _force, bool _flush);
 
-    void set_payload(const std::shared_ptr<payload> &_payload,
+    void set_message(const byte_t *_data, length_t _size,
             const std::shared_ptr<endpoint_definition> _target,
             bool _force, bool _flush);
 
-    bool set_payload_dont_notify(const std::shared_ptr<payload> &_payload);
+    bool set_message_dont_notify(const byte_t *_data, length_t _size);
 
-    void set_payload(const std::shared_ptr<payload> &_payload,
+    void set_message(const byte_t *_data, length_t _size,
             bool _force, bool _flush);
-    void unset_payload(bool _force = false);
+    void unset_message(bool _force = false);
 
     bool is_field() const;
     void set_field(bool _is_field);
@@ -66,6 +72,7 @@ public:
     void set_provided(bool _is_provided);
 
     bool is_set() const;
+    bool is_cached_payload() const;
 
     // SIP_RPC_357
     void set_update_cycle(std::chrono::milliseconds &_cycle);
@@ -124,24 +131,35 @@ private:
     bool compare(const std::shared_ptr<payload> &_lhs, const std::shared_ptr<payload> &_rhs) const;
 
     bool set_payload_helper(const std::shared_ptr<payload> &_payload, bool _force);
-    void reset_payload(const std::shared_ptr<payload> &_payload);
+    bool set_message_helper(const byte_t *_data, length_t _size, bool _force);
+    void reset_message(const byte_t *_data, length_t _size);
+    bool reset_payload(const std::shared_ptr<message_serializer> &_message_serializer,
+                       const std::shared_ptr<payload> &_payload);
 
 private:
     routing_manager *routing_;
     mutable std::mutex mutex_;
-    std::shared_ptr<message> message_;
 
-    std::atomic<bool> is_field_;
+    std::vector<byte_t> message_;
+    std::shared_ptr<payload> cached_payload_;
+
+    const service_t service_;
+    const instance_t instance_;
+    const event_t event_;
+
+    std::atomic<major_version_t> major_version_;
 
     boost::asio::steady_timer cycle_timer_;
+
     std::chrono::milliseconds cycle_;
-
     std::atomic<bool> change_resets_cycle_;
-    std::atomic<bool> is_updating_on_change_;
 
+    std::atomic<bool> is_updating_on_change_;
     mutable std::mutex eventgroups_mutex_;
+
     std::map<eventgroup_t, std::set<client_t>> eventgroups_;
 
+    std::atomic<bool> is_field_;
     std::atomic<bool> is_set_;
     std::atomic<bool> is_provided_;
 

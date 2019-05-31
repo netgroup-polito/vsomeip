@@ -18,8 +18,6 @@
 #include "serviceinfo.hpp"
 #include "event.hpp"
 #include "eventgroupinfo.hpp"
-#include "../../message/include/serializer.hpp"
-#include "../../message/include/deserializer.hpp"
 #include "../../configuration/include/configuration.hpp"
 #include "../../endpoints/include/endpoint_host.hpp"
 
@@ -35,7 +33,11 @@ class trace_connector;
 
 namespace vsomeip {
 
-class serializer;
+class asymmetric_crypto_private;
+class digital_certificate;
+class message_serializer;
+class message_deserializer;
+class session_parameters;
 
 class routing_manager_base : public routing_manager,
     public endpoint_host,
@@ -57,9 +59,9 @@ public:
     virtual void stop_offer_service(client_t _client, service_t _service,
             instance_t _instance, major_version_t _major, minor_version_t _minor);
 
-    virtual void request_service(client_t _client, service_t _service,
-            instance_t _instance, major_version_t _major,
-            minor_version_t _minor, bool _use_exclusive_proxy);
+    virtual bool request_service(client_t _client, service_t _service,
+                                 instance_t _instance, major_version_t _major,
+                                 minor_version_t _minor, bool _use_exclusive_proxy);
 
     virtual void release_service(client_t _client, service_t _service,
             instance_t _instance);
@@ -126,6 +128,9 @@ public:
     virtual void send_get_offered_services_info(client_t _client, offer_type_e _offer_type) = 0;
 
 protected:
+    virtual void on_availability(service_t _service, instance_t _instance,
+                                 bool _is_available, major_version_t _major, minor_version_t _minor) = 0;
+
     std::shared_ptr<serviceinfo> find_service(service_t _service, instance_t _instance) const;
     std::shared_ptr<serviceinfo> create_service_info(service_t _service,
             instance_t _instance, major_version_t _major,
@@ -167,9 +172,6 @@ protected:
             eventgroup_t _eventgroup, event_t _event, client_t _client,
             std::set<event_t> *_already_subscribed_events);
 
-    std::shared_ptr<deserializer> get_deserializer();
-    void put_deserializer(std::shared_ptr<deserializer>);
-
     void send_pending_subscriptions(service_t _service,
             instance_t _instance, major_version_t _major);
 
@@ -200,6 +202,61 @@ protected:
 
     std::set<std::tuple<service_t, instance_t, eventgroup_t>>
         get_subscriptions(const client_t _client);
+
+    void send_pending_events(service_t _service, instance_t _instance);
+
+protected:
+
+    bool is_session_established(service_t _service, instance_t _instance);
+
+    void set_session_parameters(service_t _service, instance_t _instance,
+                                std::shared_ptr<session_parameters> _session_parameters);
+
+    void clear_session_parameters(service_t _service, instance_t _instance, bool _remove_pending_requests = true);
+
+    std::shared_ptr<session_parameters> find_session_parameters(service_t _service, instance_t _instance) const;
+
+    std::shared_ptr<message_serializer> get_serializer(service_t _service, instance_t _instance,
+                                                       bool _silent = false) const;
+
+    std::shared_ptr<message_deserializer> get_deserializer(service_t _service, instance_t _instance,
+                                                           bool _silent = false) const;
+
+    bool send_session_establishment_request(service_t _service, instance_t _instance,
+                                            major_version_t _major, minor_version_t _minor,
+                                            bool _allow_self_request = true);
+
+    bool dispatch_session_establishment_message(service_t _service, instance_t _instance, method_t _method,
+                                                bool _reliable, const byte_t *_data, length_t _size);
+
+private:
+
+    void send_session_establishment_request_timeout(service_t _service, instance_t _instance,
+                                                    const boost::system::error_code &_error);
+
+    bool send_session_establishment_request_unlocked(service_t _service, instance_t _instance,
+                                                     std::shared_ptr<pending_session_establishment_request_t> &_pending_request);
+
+    bool on_session_establishment_request_received(const std::shared_ptr<session_parameters> &_session_parameters,
+                                                   const byte_t *_data, length_t _size, instance_t _instance,
+                                                   bool _reliable);
+
+    bool on_session_establishment_response_received(const byte_t *_data, length_t _size, instance_t _instance,
+                                                    major_version_t &_major, minor_version_t &_minor);
+
+    std::shared_ptr<session_parameters> find_session_parameters_unlocked(service_t _service, instance_t _instance) const;
+
+    std::shared_ptr<pending_session_establishment_request_t> find_pending_request(service_t _service, instance_t _instance);
+
+    std::shared_ptr<pending_session_establishment_request_t> find_pending_request_unlocked(service_t _service,
+                                                                                    instance_t _instance);
+
+    void remove_pending_request(service_t _service, instance_t _instance);
+
+    bool is_peer_allowed(const std::shared_ptr<digital_certificate> &_digital_certificate,
+                         service_t _service, instance_t _instance, security_level _security_level,
+                         bool provider);
+
 private:
     std::shared_ptr<endpoint> create_local_unlocked(client_t _client);
     std::shared_ptr<endpoint> find_local_unlocked(client_t _client);
@@ -215,12 +272,6 @@ protected:
     client_t client_;
 
     std::shared_ptr<configuration> configuration_;
-    std::shared_ptr<serializer> serializer_;
-    std::mutex serialize_mutex_;
-
-    std::queue<std::shared_ptr<deserializer>> deserializers_;
-    std::mutex deserializer_mutex_;
-    std::condition_variable deserializer_condition_;
 
     std::mutex local_services_mutex_;
     std::map<service_t, std::map<instance_t, std::tuple< major_version_t, minor_version_t, client_t> > > local_services_;
@@ -268,6 +319,15 @@ protected:
 private:
     services_t services_;
     mutable std::mutex services_mutex_;
+
+    const std::shared_ptr<digital_certificate> digital_certificate_;
+    const std::shared_ptr<asymmetric_crypto_private> private_key_;
+
+    sessions_t sessions_;
+    mutable std::mutex sessions_mutex_;
+
+    pending_session_establishment_requests_t pending_session_establishment_requests_;
+    mutable std::mutex pending_session_establishment_requests_mutex_;
 
     std::map<client_t, std::shared_ptr<endpoint> > local_endpoints_;
     mutable std::mutex local_endpoint_mutex_;

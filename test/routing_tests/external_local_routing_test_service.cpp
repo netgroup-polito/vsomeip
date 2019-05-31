@@ -115,14 +115,14 @@ void external_local_routing_test_service::on_message(
     {
         number_received_messages_local_++;
         // check the session id.
-        ASSERT_EQ(_request->get_session(),
+        ASSERT_EQ(_request->get_session() - 1 /* The first session ID is used during session establishment */,
                 static_cast<vsomeip::session_t>(number_received_messages_local_));
     }
     else if (_request->get_client() == vsomeip_test::TEST_CLIENT_EXTERNAL_CLIENT_ID)
     {
         number_received_messages_external_++;
         // check the session id.
-        ASSERT_EQ(_request->get_session(),
+        ASSERT_EQ(_request->get_session() - 1 /* The first session ID is used during session establishment */,
                 static_cast<vsomeip::session_t>(number_received_messages_external_));
     }
 

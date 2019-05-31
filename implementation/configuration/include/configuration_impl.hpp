@@ -20,6 +20,7 @@
 #include "watchdog.hpp"
 #include "service_instance_range.hpp"
 #include "policy.hpp"
+#include "security.hpp"
 #include "../../e2e_protection/include/e2exf/config.hpp"
 #include "e2e.hpp"
 #include "debounce.hpp"
@@ -35,8 +36,18 @@ struct eventgroup;
 struct watchdog;
 
 struct element {
+
     std::string name_;
+    std::string content_;
     boost::property_tree::ptree tree_;
+    configuration_security configuration_security_;
+
+    element(std::string _name, std::string _buffer,
+            const boost::property_tree::ptree &_tree,
+            configuration_security _configuration_security)
+            : name_(std::move(_name)), content_(std::move(_buffer)),
+              tree_(_tree), configuration_security_(std::move(_configuration_security)) {
+    }
 
     bool operator<(const element &_other) const {
         return (name_ < _other.name_);
@@ -173,13 +184,35 @@ public:
     VSOMEIP_EXPORT endpoint_queue_limit_t get_endpoint_queue_limit(
             const std::string& _address, std::uint16_t _port) const;
     VSOMEIP_EXPORT endpoint_queue_limit_t get_endpoint_queue_limit_local() const;
+
+    // Security
+    VSOMEIP_EXPORT std::string get_private_key_path(const std::string &_name) const override;
+    VSOMEIP_EXPORT certificate_fingerprint_t get_certificate_fingerprint(const std::string &_name) const override;
+
+    VSOMEIP_EXPORT crypto_algorithm_packed get_crypto_algorithm(service_t _service, instance_t _instance) const override;
+    VSOMEIP_EXPORT crypto_algorithm_packed get_default_crypto_algorithm(security_level _security_level) const override;
+
+    VSOMEIP_EXPORT std::string get_certificates_path() const override;
+    VSOMEIP_EXPORT certificate_fingerprint_t get_root_certificate_fingerprint() const override;
+    VSOMEIP_EXPORT uint8_t get_session_establishment_max_repetitions() const override;
+    VSOMEIP_EXPORT uint32_t get_session_establishment_repetitions_delay() const override;
+    VSOMEIP_EXPORT float get_session_establishment_repetitions_delay_ratio() const override;
+
+    VSOMEIP_EXPORT bool are_application_fingerprints_enabled() const override;
+    VSOMEIP_EXPORT application_fingerprint_t get_application_fingerprint(const std::string &_name) const override;
+
 private:
     void read_data(const std::set<std::string> &_input,
-            std::vector<element> &_elements,
-            std::set<std::string> &_failed,
-            bool _standard_only);
+                   std::map<std::string, std::shared_ptr<element>> &_cached_elements,
+                   std::vector<std::shared_ptr<element>> &_elements,
+                   std::set<std::string> &_failed,
+                   bool _standard_only);
 
-    bool load_data(const std::vector<element> &_elements,
+    std::shared_ptr<element> read_file(
+            const std::string &_input,
+            std::map<std::string, std::shared_ptr<element>> &_cached_elements);
+
+    bool load_data(const std::vector<std::shared_ptr<element>> &_elements,
             bool _load_mandatory, bool _load_optional);
 
     bool load_logging(const element &_element,
@@ -271,6 +304,16 @@ private:
 
     void load_endpoint_queue_sizes(const element &_element);
 
+    void load_service_security(const element &_element);
+    void load_service_security_data(const boost::property_tree::ptree &_tree);
+    void load_default_algorithm(const boost::property_tree::ptree &_tree);
+
+    bool load_hex_value(const std::string &_value, byte_t *_output, size_t _expected_length,
+                            const std::string &_id) const;
+    application_fingerprint_t load_application_fingerprint(const std::string &_fingerprint) const;
+    certificate_fingerprint_t load_certificate_fingerprint(const std::string &_fingerprint) const;
+    signature_t load_configuration_signature(const std::string &_signature, size_t _signature_length) const;
+
 private:
     std::mutex mutex_;
 
@@ -292,7 +335,9 @@ protected:
     boost::log::trivial::severity_level loglevel_;
 
     std::map<std::string, std::tuple<client_t, std::size_t, std::size_t,
-                size_t, size_t, std::map<plugin_type_e, std::set<std::string>>>> applications_;
+            size_t, size_t, std::string,
+            certificate_fingerprint_t, application_fingerprint_t,
+            std::map<plugin_type_e, std::set<std::string>>>> applications_;
     std::set<client_t> client_identifiers_;
 
     std::map<service_t,
@@ -401,6 +446,8 @@ protected:
     std::map<std::string, std::map<std::uint16_t, endpoint_queue_limit_t>> endpoint_queue_limits_;
     endpoint_queue_limit_t endpoint_queue_limit_external_;
     endpoint_queue_limit_t endpoint_queue_limit_local_;
+
+    service_security service_security_;
 };
 
 } // namespace cfg

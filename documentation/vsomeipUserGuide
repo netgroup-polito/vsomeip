@@ -984,9 +984,210 @@ normal events.
 Specifies an IP-Address (in IPv4 or IPv6 notation) on which the "selective"-feature is supported.
 Multiple addresses can be configuered.
 
-Security
---------
-vsomeip has a security implementation based on UNIX credentials.
+Security (Cryptography)
+-----------------------
+vsomeip introduces security functions through the design and development of a two-phase security
+protocol tightly integrated within SOME/IP and strongly based on the usage of cryptographic
+functions to provide the actual protection. In particular, the two characterizing steps of the
+protocol are:
+
+* 'session establishment', performed at start-up time between the application offering a service
+and all the requesters by means of asymmetric cryptography mechanisms, to guarantee that only
+authorized parties can start the communication and to share the necessary information for the
+subsequent protection phase;
+
+* 'message protection', which provides the actual protection to the messages exchanged across the
+network:  symmetric cryptography algorithms and the previously exchanged session parameters
+are exploited to authenticate and/or encrypt the packets according to the requested security level.
+
+Every service instance can be assigned to a different 'security level', to allow for a trade-off
+between the requests in terms of protection and the increase in latency. Available possibilities are:
+
+* 'nosec', corresponding to vanilla SOME/IP;
+
+* 'authentication', assuring that only allowed applications can send messages associated to a specific service:
+it attests data authentication, integrity and prevents message replay;
+
+* 'confidentiality', guaranteeing all the security properties offered by the previous one and, additionally,
+data confidentiality, to preclude unauthorized parties from accessing the exchanged information.
+
+
+Security configuration
+~~~~~~~~~~~~~~~~~~~~~~
+The available configuration switches for the security features are:
+
+* 'applications' (array)
++
+In addition to the already available configurations, three new parameters are added.
+
+** 'private-key-path'
++
+Specifies the path of the file containing the private key associated to the application.
+
+** 'certificate-fingerprint'
++
+Specifies the fingerprint (in hexadecimal format) identifying the digital certificate
+associated to the application.
+
+** 'application-fingerprint' (optional)
++
+Specifies the fingerprint (in hexadecimal format) of the application's executable, which
+is checked at start-up time if the _check-application-fingerprints_ flag is specified.
+
+
+* 'service-security'
++
+Provides the possibility to customize most of the parameters related to security functions.
+
+** 'certificates-path'
++
+Specifies the path to the folder containing all the necessary certificates.
+
+** 'root-certificate-fingerprint'
++
+Specifies the fingerprint (in hexadecimal format) identifying the root certificate.
+
+** 'services' (optional array)
++
+Specifies additional constraints, with respect to the ones already mandated by the digital certificate
+associated to the application. For each offered service instance, it is possible to request a security
+level higher than the one set in the certificate and/or specify the preferred cryptographic algorithm to
+be used for the actual protection.
+
+*** 'service'
++
+Service ID identifying the considered service instance.
+
+*** 'instance'
++
+Instance ID identifying the considered service instance.
+
+*** 'security-level' (optional)
++
+The security level (_nosec_, _authentication_ or _confidentiality_) assigned to the specific service instance.
+It must be greater that or equal to the one mandated by the digital certificate.
+
+*** 'security-algorithm' (optional)
++
+The cryptographic algorithm chosen to protect the specified service instance. It must be compatible
+with the requested security level: possible values are _null_ for _nosec_-level services,
+_chacha20-poly1305-256_ (default), _aes-gcm-128_ and _aes-gcm-256_ in case of _authentication_ or
+_confidentiality_-level ones.
+
+** 'default-algorithms' (optional array)
++
+Specifies a default cryptographic algorithm associated to the different available security levels.
+
+*** 'security-level'
++
+The identifier of the security level for which the algorithm is specified. Possible values
+are _nosec_, _authentication_ and _confidentiality_.
+
+*** 'security-algorithm'
++
+The cryptographic algorithm associated to the given security level. It must be compatible
+with the requested security level: possible values are _null_ for _nosec_-level services,
+_chacha20-poly1305-256_ (default), _aes-gcm-128_ and _aes-gcm-256_ in case of _authentication_ or
+_confidentiality_-level ones.
+
+** 'repetitions-max' (optional)
++
+The maximum number of times the session establishment process is attempted before giving up.
+The default value is _3_.
+
+** 'repetitions-delay' (optional)
++
+The amount of time that is waited before a new session establishment attempt in
+case no response is received. The default value is _1000ms_.
+
+** 'repetitions-delay-ratio' (optional)
++
+The ratio at which the repetitions-delay value is increased at every new attempt. The
+complete formula is _timeout = repetitions-delay * attempts^repetitions-delay-ratio_.
+The default value is _2.0_.
+
+** 'check-application-fingerprints' (optional)
++
+Specifies whether the fingerprint of the application's executable is verified at start-up
+or not.
+
+
+* 'configuration-security'
++
+Specifies the parameters necessary to verify the authenticity and integrity of the
+configuration file.
+
+** 'signature-algorithm' (optional)
++
+Specifies the asymmetric cryptography algorithm used to verify the signature.
+The default value (and only available choice) is _rsa2048-sha256_.
+
+** 'certificate-fingerprint'
++
+Specifies the fingerprint (in hexadecimal format) identifying the digital certificate
+containing the public key necessary to verify the digital signature.
+
+** 'signature'
++
+Specifies the signature value (in hexadecimal format). It is computed among the entire
+file, with the signature value replaced by a number of zeros corresponding to its
+expected length.
+
+
+Security configuration example
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In the following, an example of security configuration is presented. Before continuing, it is
+worth noting that fingerprints and signatures, shown in a shortened format to avoid lengthy lines,
+must be written in full inside the actual json files for being accepted.
+
+[source, bash]
+----
+...
+"applications" : [{
+	"name" : "example-application",
+	"id" : "0x0001",
+	"private-key-path" : "./example-application.key",
+	"certificate-fingerprint" : "910F4D028E63CD8B..31A8A2B53A900163",
+	"application-fingerprint" : "A0EEF580CAE3B616..A6D1D0AC87542FFA"
+}],
+
+"service-security" : {
+	"certificates-path" : "/var/certificates",
+	"root-certificate-fingerprint" : "63ED9DB6A52A4B5C..1414A5E72EB5F3C5",
+
+	"services" : [{
+		"service" : "0x1234",
+		"instance" : "0x5678",
+		"security-level" : "confidentiality",
+		"security-algorithm" : "aes-gcm-128"
+	}],
+
+	"default-algorithms" : [{
+		"security-level" : "authentication",
+		"security-algorithm" : "chacha20-poly1305-256"
+	},{
+		"security-level" : "confidentiality",
+		"security-algorithm" : "aes-gcm-256"
+	}],
+
+	"repetitions-max" : "3",
+	"repetitions-delay" : "1000" ,
+	"repetitions-delay-ratio" : "2.0",
+
+	"check-application-fingerprints" : "true"
+},
+
+"configuration-security" : {
+	"signature-algorithm" : "rsa2048-sha256",
+	"certificate-fingerprint" : "08F7338656BEDEBE..36A623EC3720E33A",
+	"signature" : "5507C9115B288C167C830875AD328081..9B84494A671AD986C45D2733DA4C633E"
+}
+...
+----
+
+Security (UNIX credentials)
+---------------------------
+vsomeip has also a security implementation based on UNIX credentials.
 If activated every local connection is authenticated during connect using the standard UNIX credential passing mechanism.
 During authentification a client transfers its client identifier together with its credentials (UID / GID) to the server which is then matched against the configuration.
 If received credentials don't match the policy the socket will be immediately closed by the server and an message is logged.

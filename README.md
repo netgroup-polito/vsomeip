@@ -1,16 +1,16 @@
-### vsomeip
+# vsomeip
 
-##### Copyright
+## Copyright
 Copyright (C) 2015-2017, Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
 
-##### License
+## License
 
 This Source Code Form is subject to the terms of the Mozilla Public
 License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-##### vsomeip Overview
-----------------
+## vsomeip Overview
+
 The vsomeip stack implements the http://some-ip.com/ (Scalable service-Oriented
 MiddlewarE over IP (SOME/IP)) protocol. The stack consists out of:
 
@@ -18,12 +18,50 @@ MiddlewarE over IP (SOME/IP)) protocol. The stack consists out of:
 * a second shared library for SOME/IP's service discovery (`libvsomeip-sd.so`)
   which is loaded during runtime if the service discovery is enabled.
 
-##### Build Instructions
+## Secure SOME/IP Overview
 
-###### Dependencies
+Secure SOME/IP introduces security functionalities on top of `vsomeip` through
+the design and development of a two-phase security protocol tightly integrated
+within SOME/IP and strongly based on the usage of well-established cryptographic
+algorithms to provide the actual protection.
+In particular, the two characterizing steps of the protocol are:
+
+* _session establishment_, independently performed at start-up time between the
+application offering a service and each requester by means of asymmetric
+cryptography mechanisms, to guarantee that only authorized parties can start the
+communication and to share the necessary information for the subsequent
+protection phase;
+
+* _message protection_, which provides the actual protection to the messages
+exchanged across the network:  symmetric cryptography algorithms and the
+previously exchanged session parameters are exploited to authenticate and/or
+encrypt the packets according to the requested security level.
+
+Every service instance can be assigned to a different _security level_, to allow
+for a trade-off between the requests in terms of protection and the increase in
+latency.
+Available possibilities are:
+
+* _nosec_, corresponding to vanilla SOME/IP;
+
+* _authentication_, assuring that only allowed applications can send messages
+associated to a specific service: it attests data authentication, integrity and
+prevents message replay;
+
+* _confidentiality_, guaranteeing all the security properties offered by the
+authentication level and, additionally, data confidentiality, to preclude
+unauthorized parties from accessing the exchanged information.
+
+Additional information concerning the configuration of the the different
+security functionalities can be found in the vsomeip user guide.
+
+## Build Instructions
+
+### Dependencies
 
 - A C++11 enabled compiler like gcc >= 4.8 is needed.
 - vsomeip uses CMake as buildsystem.
+- Secure vsomeip uses openssl >= 1.1.0
 - vsomeip uses Boost >= 1.55:
 
 Ubuntu 14.04:
@@ -42,7 +80,7 @@ For the tests Google's test framework https://code.google.com/p/googletest/[gtes
 To build the documentation asciidoc, source-highlight, doxygen and graphviz is needed:
 --`sudo apt-get install asciidoc source-highlight doxygen graphviz`
 
-###### Compilation
+### Compilation
 
 For compilation call:
 
@@ -60,7 +98,7 @@ make
 make install
 ```
 
-###### Compilation with predefined unicast and/or diagnosis address
+### Compilation with predefined unicast and/or diagnosis address
 To predefine the unicast address, call cmake like:
 ```bash
 cmake -DUNICAST_ADDRESS=<YOUR IP ADDRESS> ..
@@ -72,7 +110,7 @@ cmake -DDIAGNOSIS_ADDRESS=<YOUR DIAGNOSIS ADDRESS> ..
 ```
 The diagnosis address is a single byte value.
 
-###### Compilation with signal handling
+### Compilation with signal handling
 
 To compile vsomeip with signal handling (SIGINT/SIGTERM) enabled, call cmake like:
 ```bash

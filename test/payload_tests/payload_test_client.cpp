@@ -98,8 +98,7 @@ void payload_test_client::on_state(vsomeip::state_type_e _state)
 {
     if(_state == vsomeip::state_type_e::ST_REGISTERED)
     {
-        app_->request_service(vsomeip_test::TEST_SERVICE_SERVICE_ID,
-                vsomeip_test::TEST_SERVICE_INSTANCE_ID, false);
+        app_->request_service(vsomeip_test::TEST_SERVICE_SERVICE_ID, vsomeip_test::TEST_SERVICE_INSTANCE_ID);
     }
 }
 
@@ -241,7 +240,7 @@ std::uint32_t payload_test_client::get_max_allowed_payload()
             payload = 4095 - 16;
             break;
         case payloadsize::UDP:
-            payload = VSOMEIP_MAX_UDP_MESSAGE_SIZE - 16;
+            payload = VSOMEIP_MAX_UDP_MESSAGE_SIZE - 16 - 28 /* Account for authentication overhead */;
             break;
         case payloadsize::USER_SPECIFIED:
             payload = user_defined_max_payload;
@@ -305,8 +304,8 @@ void payload_test_client::print_throughput()
     << "Payload size [byte]: " << std::dec << std::setw(8) << std::setfill('0') << current_payload_size_
     << " Messages sent: " << std::dec << std::setw(8) << std::setfill('0') << number_of_sent_messages_
     << " Meantime/message [usec]: " << std::dec << std::setw(8) << std::setfill('0') << time_per_message
-    << " Calls/sec: " << std::dec << std::setw(8) << std::setfill('0') << calls_per_sec
-    << " MiB/sec: " << std::dec << std::setw(8) << std::setfill('0') << mbyte_per_sec;
+    << " Calls/sec: " << std::dec << std::setw(8) << std::setfill('0') << std::fixed << std::setprecision(1) << calls_per_sec
+    << " MiB/sec: " << std::dec << std::setw(8) << std::setfill('0') << std::fixed << std::setprecision(4) << mbyte_per_sec;
 }
 
 TEST(someip_payload_test, send_different_payloads)

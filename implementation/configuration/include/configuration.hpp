@@ -26,6 +26,8 @@
 #include "e2e.hpp"
 
 #include "debounce.hpp"
+#include "../../crypto/common/include/algorithms.hpp"
+#include "../../crypto/common/include/crypto_types.hpp"
 
 #define VSOMEIP_CONFIG_PLUGIN_VERSION              1
 
@@ -170,6 +172,21 @@ public:
     virtual endpoint_queue_limit_t get_endpoint_queue_limit(
             const std::string& _address, std::uint16_t _port) const = 0;
     virtual endpoint_queue_limit_t get_endpoint_queue_limit_local() const = 0;
+
+    // Security
+    virtual std::string get_private_key_path(const std::string &_name) const = 0;
+    virtual certificate_fingerprint_t get_certificate_fingerprint(const std::string &_name) const = 0;
+    virtual crypto_algorithm_packed get_crypto_algorithm(service_t _service, instance_t _instance) const = 0;
+    virtual crypto_algorithm_packed get_default_crypto_algorithm(security_level _security_level) const = 0;
+
+    virtual std::string get_certificates_path() const = 0;
+    virtual certificate_fingerprint_t get_root_certificate_fingerprint() const = 0;
+    virtual uint8_t get_session_establishment_max_repetitions() const = 0;
+    virtual uint32_t get_session_establishment_repetitions_delay() const = 0;
+    virtual float get_session_establishment_repetitions_delay_ratio() const = 0;
+
+    virtual bool are_application_fingerprints_enabled() const = 0;
+    virtual application_fingerprint_t get_application_fingerprint(const std::string &_name) const = 0;
 };
 
 } // namespace vsomeip

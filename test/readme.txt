@@ -104,6 +104,12 @@ The expected result is an output like this on service side:
 2015-02-10 08:42:07.361672 [error] Detected Magic Cookie within message data. Resyncing.
 2015-02-10 08:42:07.361761 [info] Received a message with Client/Session [1343/000f]
 
+Note: this test does not complete correctly if the service is configured to
+operate at either authentication or confidentiality level. This behavior occurs
+since the test sends some messages by using raw endpoints instead of the usual
+abstraction: those packets do not include the requested information for
+authentication and, therefore, the deserialization fails at reception side.
+
 Header Factory Tests
 --------------------
 
@@ -520,3 +526,28 @@ Rejecting remote offer for which there is already a local offer
 * start application which offers service
 * send SD message trying to offer the same service instance as already
   offered locally from a remote host -> should be rejected
+
+Note: the test named offer_test_external does not complete correctly if the
+service is configured to operate at either authentication or confidentiality
+level. This behavior occurs since the test sends some messages by using raw
+endpoints instead of the usual abstraction: those packets do not include the
+requested information for authentication and, therefore, the deserialization
+fails at reception side.
+
+
+Pending subscrition tests
+-------------------------
+Note: pending subscription tests named
+* pending_subscription_test_subscribe
+* pending_subscription_test_alternating_subscribe_unsubscribe
+* pending_subscription_test_unsubscribe
+* pending_subscription_test_alternating_subscribe_unsubscribe_nack
+* pending_subscription_test_alternating_subscribe_unsubscribe_same_port
+* pending_subscription_test_subscribe_resubscribe_mixed
+* pending_subscription_test_subscribe_stopsubscribe_subscribe
+do not complete correctly if the service is configured to operate at either
+authentication or confidentiality level. This behavior occurs since the tests
+send some messages by using raw endpoints instead of the usual abstraction:
+those packets do not include the requested information for authentication and,
+therefore, the deserialization fails at reception side.
+

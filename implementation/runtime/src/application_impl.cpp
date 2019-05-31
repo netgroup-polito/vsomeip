@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <boost/log/exceptions.hpp>
+#include <boost/executable_path/executable_path.hpp>
 
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -22,6 +23,7 @@
 #include "../include/application_impl.hpp"
 #include "../../configuration/include/configuration.hpp"
 #include "../../configuration/include/internal.hpp"
+#include "../../crypto/digest/include/message_digest_impl.hpp"
 #include "../../logging/include/logger.hpp"
 #include "../../message/include/serializer.hpp"
 #include "../../routing/include/routing_manager_impl.hpp"
@@ -85,6 +87,7 @@ bool application_impl::init() {
     }
 
     std::string configuration_path;
+    bool configuration_correctly_loaded = false;
 
     // load configuration from module
     std::string config_module = "";
@@ -99,10 +102,10 @@ bool application_impl::init() {
             if (configuration_path.length()) {
                 configuration_->set_configuration_path(configuration_path);
             }
-            configuration_->load(name_);
+            configuration_correctly_loaded = configuration_->load(name_);
             VSOMEIP_INFO << "Default configuration module loaded.";
         } else {
-            std::cerr << "Service Discovery module could not be loaded!" << std::endl;
+            std::cerr << "Configuration module could not be loaded!" << std::endl;
             std::exit(EXIT_FAILURE);
         }
     }
@@ -157,108 +160,139 @@ bool application_impl::init() {
     }
 
     std::shared_ptr<configuration> its_configuration = get_configuration();
-    if (its_configuration) {
-        VSOMEIP_INFO << "Initializing vsomeip application \"" << name_ << "\".";
-        client_ = its_configuration->get_id(name_);
+    if (!its_configuration || !configuration_correctly_loaded) {
+        VSOMEIP_FATAL << "Failed to load the configuration";
+        return false;
+    }
 
-        // Max dispatchers is the configured maximum number of dispatchers and
-        // the main dispatcher
-        max_dispatchers_ = its_configuration->get_max_dispatchers(name_) + 1;
-        max_dispatch_time_ = its_configuration->get_max_dispatch_time(name_);
+    VSOMEIP_INFO << "Initializing vsomeip application \"" << name_ << "\".";
+    client_ = its_configuration->get_id(name_);
 
-        std::string its_routing_host = its_configuration->get_routing_host();
-        if (!utility::auto_configuration_init(its_configuration)) {
-            VSOMEIP_WARNING << "Could _not_ initialize auto-configuration:"
-                    " Cannot guarantee unique application identifiers!";
+    // Check whether the application fingerprint corresponds to the expected one
+    if (its_configuration->are_application_fingerprints_enabled()) {
+        auto its_executable_path = boost::executable_path((const char*) nullptr);
+        if (its_executable_path.empty()) {
+            VSOMEIP_FATAL << "Failed to get the application path";
+            return false;
         } else {
-            // Client Identifier
-            client_t its_old_client = client_;
-            client_ = utility::request_client_id(its_configuration, name_, client_);
-            if (client_ == ILLEGAL_CLIENT) {
-                VSOMEIP_ERROR << "Couldn't acquire client identifier";
-                return false;
-            }
-            VSOMEIP_INFO << "SOME/IP client identifier configured. "
-                    << "Using "
-                    << std::hex << std::setfill('0') << std::setw(4)
-                    << client_
-                    << " (was: "
-                    << std::hex << std::setfill('0') << std::setw(4)
-                    << its_old_client
-                    << ")";
-
-            // Routing
-            if (its_routing_host == "") {
-                VSOMEIP_INFO << "No routing manager configured. Using auto-configuration.";
-                is_routing_manager_host_ = utility::is_routing_manager_host(client_);
-            } 
+            VSOMEIP_INFO << "Application path: '" << its_executable_path << "'";
         }
 
-        if (its_routing_host != "") {
-            is_routing_manager_host_ = (its_routing_host == name_);
+        application_fingerprint_t its_actual_fingerprint;
+        message_digest_impl its_digest_algorithm(digest_algorithm::MD_SHA256);
+        if (!its_digest_algorithm.compute_digest(its_executable_path, its_actual_fingerprint.data())) {
+            VSOMEIP_FATAL << "Impossible to compute the application fingerprint";
+            return false;
         }
 
-        if (is_routing_manager_host_) {
-            VSOMEIP_INFO << "Instantiating routing manager [Host].";
-            routing_ = std::make_shared<routing_manager_impl>(this);
+        auto its_expected_fingerprint = its_configuration->get_application_fingerprint(name_);
+        if (its_actual_fingerprint == its_expected_fingerprint) {
+            VSOMEIP_INFO << "Application fingerprint correctly verified";
         } else {
-            VSOMEIP_INFO << "Instantiating routing manager [Proxy].";
-            routing_ = std::make_shared<routing_manager_proxy>(this, client_side_logging_, client_side_logging_filter_);
+            VSOMEIP_FATAL << "Application fingerprint not corresponding to the expected one";
+            return false;
         }
+    } else {
+        VSOMEIP_INFO << "Application fingerprint verification not enabled";
+    }
 
-        routing_->init();
+    // Max dispatchers is the configured maximum number of dispatchers and
+    // the main dispatcher
+    max_dispatchers_ = its_configuration->get_max_dispatchers(name_) + 1;
+    max_dispatch_time_ = its_configuration->get_max_dispatch_time(name_);
 
-        // Smallest allowed session identifier
-        session_ = 0x0001;
+    std::string its_routing_host = its_configuration->get_routing_host();
+    if (!utility::auto_configuration_init(its_configuration)) {
+        VSOMEIP_WARNING << "Could _not_ initialize auto-configuration:"
+                           " Cannot guarantee unique application identifiers!";
+    } else {
+        // Client Identifier
+        client_t its_old_client = client_;
+        client_ = utility::request_client_id(its_configuration, name_, client_);
+        if (client_ == ILLEGAL_CLIENT) {
+            VSOMEIP_ERROR << "Couldn't acquire client identifier";
+            return false;
+        }
+        VSOMEIP_INFO << "SOME/IP client identifier configured. "
+                     << "Using "
+                     << std::hex << std::setfill('0') << std::setw(4)
+                     << client_
+                     << " (was: "
+                     << std::hex << std::setfill('0') << std::setw(4)
+                     << its_old_client
+                     << ")";
+
+        // Routing
+        if (its_routing_host == "") {
+            VSOMEIP_INFO << "No routing manager configured. Using auto-configuration.";
+            is_routing_manager_host_ = utility::is_routing_manager_host(client_);
+        }
+    }
+
+    if (its_routing_host != "") {
+        is_routing_manager_host_ = (its_routing_host == name_);
+    }
+
+    if (is_routing_manager_host_) {
+        VSOMEIP_INFO << "Instantiating routing manager [Host].";
+        routing_ = std::make_shared<routing_manager_impl>(this);
+    } else {
+        VSOMEIP_INFO << "Instantiating routing manager [Proxy].";
+        routing_ = std::make_shared<routing_manager_proxy>(this, client_side_logging_, client_side_logging_filter_);
+    }
+
+    routing_->init();
+
+    // Smallest allowed session identifier
+    session_ = 0x0001;
 
 #ifdef USE_DLT
-        // Tracing
-        std::shared_ptr<tc::trace_connector> its_trace_connector = tc::trace_connector::get();
-        std::shared_ptr<cfg::trace> its_trace_cfg = its_configuration->get_trace();
+    // Tracing
+    std::shared_ptr<tc::trace_connector> its_trace_connector = tc::trace_connector::get();
+    std::shared_ptr<cfg::trace> its_trace_cfg = its_configuration->get_trace();
 
-        auto &its_channels_cfg = its_trace_cfg->channels_;
-        for (auto it = its_channels_cfg.begin(); it != its_channels_cfg.end(); ++it) {
-            its_trace_connector->add_channel(it->get()->id_, it->get()->name_);
+    auto &its_channels_cfg = its_trace_cfg->channels_;
+    for (auto it = its_channels_cfg.begin(); it != its_channels_cfg.end(); ++it) {
+        its_trace_connector->add_channel(it->get()->id_, it->get()->name_);
+    }
+
+    auto &its_filter_rules_cfg = its_trace_cfg->filter_rules_;
+    for (auto it = its_filter_rules_cfg.begin(); it != its_filter_rules_cfg.end(); ++it) {
+        std::shared_ptr<cfg::trace_filter_rule> its_filter_rule_cfg = *it;
+        tc::trace_connector::filter_rule_t its_filter_rule;
+        tc::filter_type_e its_filter_type;
+
+        if(its_filter_rule_cfg->type_ == "negative") {
+            its_filter_type = tc::filter_type_e::NEGATIVE;
+        } else {
+            its_filter_type = tc::filter_type_e::POSITIVE;
         }
 
-        auto &its_filter_rules_cfg = its_trace_cfg->filter_rules_;
-        for (auto it = its_filter_rules_cfg.begin(); it != its_filter_rules_cfg.end(); ++it) {
-            std::shared_ptr<cfg::trace_filter_rule> its_filter_rule_cfg = *it;
-            tc::trace_connector::filter_rule_t its_filter_rule;
-            tc::filter_type_e its_filter_type;
+        tc::trace_connector::filter_rule_map_t its_filter_rule_map;
+        its_filter_rule_map[tc::filter_criteria_e::SERVICES] = its_filter_rule_cfg->services_;
+        its_filter_rule_map[tc::filter_criteria_e::METHODS] = its_filter_rule_cfg->methods_;
+        its_filter_rule_map[tc::filter_criteria_e::CLIENTS] = its_filter_rule_cfg->clients_;
 
-            if(its_filter_rule_cfg->type_ == "negative") {
-                its_filter_type = tc::filter_type_e::NEGATIVE;
-            } else {
-                its_filter_type = tc::filter_type_e::POSITIVE;
-            }
+        its_filter_rule = std::make_pair(its_filter_type, its_filter_rule_map);
 
-            tc::trace_connector::filter_rule_map_t its_filter_rule_map;
-            its_filter_rule_map[tc::filter_criteria_e::SERVICES] = its_filter_rule_cfg->services_;
-            its_filter_rule_map[tc::filter_criteria_e::METHODS] = its_filter_rule_cfg->methods_;
-            its_filter_rule_map[tc::filter_criteria_e::CLIENTS] = its_filter_rule_cfg->clients_;
+        its_trace_connector->add_filter_rule(it->get()->channel_, its_filter_rule);
+    }
 
-            its_filter_rule = std::make_pair(its_filter_type, its_filter_rule_map);
+    bool enable_tracing = its_trace_cfg->is_enabled_;
+    if (enable_tracing)
+        its_trace_connector->init();
+    its_trace_connector->set_enabled(enable_tracing);
 
-            its_trace_connector->add_filter_rule(it->get()->channel_, its_filter_rule);
-        }
-
-        bool enable_tracing = its_trace_cfg->is_enabled_;
-        if (enable_tracing)
-            its_trace_connector->init();
-        its_trace_connector->set_enabled(enable_tracing);
-
-        bool enable_sd_tracing = its_trace_cfg->is_sd_enabled_;
-        its_trace_connector->set_sd_enabled(enable_sd_tracing);
+    bool enable_sd_tracing = its_trace_cfg->is_sd_enabled_;
+    its_trace_connector->set_sd_enabled(enable_sd_tracing);
 #endif
 
-        VSOMEIP_INFO << "Application(" << (name_ != "" ? name_ : "unnamed")
-                << ", " << std::hex << client_ << ") is initialized ("
-                << std::dec << max_dispatchers_ << ", "
-                << std::dec << max_dispatch_time_ << ").";
+    VSOMEIP_INFO << "Application(" << (name_ != "" ? name_ : "unnamed")
+                 << ", " << std::hex << client_ << ") is initialized ("
+                 << std::dec << max_dispatchers_ << ", "
+                 << std::dec << max_dispatch_time_ << ").";
 
-        is_initialized_ = true;
-    }
+    is_initialized_ = true;
 
 #ifdef VSOMEIP_ENABLE_SIGNAL_HANDLING
     if (is_initialized_) {
@@ -303,6 +337,12 @@ bool application_impl::init() {
 }
 
 void application_impl::start() {
+
+    if(!is_initialized_) {
+        VSOMEIP_FATAL << "Trying to initialize an uninitialized application.";
+        return;
+    }
+
 #ifndef _WIN32
     if (getpid() != static_cast<pid_t>(syscall(SYS_gettid))) {
         // only set threadname if calling thread isn't the main thread
@@ -1301,6 +1341,13 @@ client_t application_impl::get_client() const {
     return client_;
 }
 
+session_t application_impl::get_session() {
+    std::lock_guard<std::mutex> its_lock(session_mutex_);
+    auto session = session_;
+    update_session();
+    return session;
+}
+
 std::shared_ptr<configuration> application_impl::get_configuration() const {
     return configuration_;
 }
@@ -2001,12 +2048,12 @@ void application_impl::send_back_cached_event(service_t _service,
                                               event_t _event) {
     std::shared_ptr<event> its_event = routing_->find_event(_service,
             _instance, _event);
-    if (its_event && its_event->is_field() && its_event->is_set()) {
+    if (its_event && its_event->is_field() && its_event->is_set() && its_event->is_cached_payload()) {
         std::shared_ptr<message> its_message = runtime_->create_notification();
         its_message->set_service(_service);
         its_message->set_method(_event);
         its_message->set_instance(_instance);
-        its_message->set_payload(its_event->get_payload());
+        its_message->set_payload(its_event->get_cached_payload());
         its_message->set_initial(true);
         on_message(std::move(its_message));
         VSOMEIP_INFO << "Sending back cached event ("
@@ -2023,13 +2070,13 @@ void application_impl::send_back_cached_eventgroup(service_t _service,
     std::set<std::shared_ptr<event>> its_events = routing_->find_events(_service, _instance,
             _eventgroup);
     for(const auto &its_event : its_events) {
-        if (its_event && its_event->is_field() && its_event->is_set()) {
+        if (its_event && its_event->is_field() && its_event->is_set() && its_event->is_cached_payload()) {
             std::shared_ptr<message> its_message = runtime_->create_notification();
             const event_t its_event_id(its_event->get_event());
             its_message->set_service(_service);
             its_message->set_method(its_event_id);
             its_message->set_instance(_instance);
-            its_message->set_payload(its_event->get_payload());
+            its_message->set_payload(its_event->get_cached_payload());
             its_message->set_initial(true);
             on_message(std::move(its_message));
             VSOMEIP_INFO << "Sending back cached event ("

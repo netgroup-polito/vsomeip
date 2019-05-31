@@ -68,9 +68,9 @@ public:
     void stop_offer_service(client_t _client, service_t _service,
             instance_t _instance, major_version_t _major, minor_version_t _minor);
 
-    void request_service(client_t _client, service_t _service,
-            instance_t _instance, major_version_t _major,
-            minor_version_t _minor, bool _use_exclusive_proxy);
+    bool request_service(client_t _client, service_t _service,
+                         instance_t _instance, major_version_t _major,
+                         minor_version_t _minor, bool _use_exclusive_proxy);
 
     void release_service(client_t _client, service_t _service,
             instance_t _instance);
@@ -140,9 +140,6 @@ public:
     void remove_local(client_t _client);
     void on_stop_offer_service(client_t _client, service_t _service, instance_t _instance,
             major_version_t _major, minor_version_t _minor);
-
-    void on_availability(service_t _service, instance_t _instance,
-            bool _is_available, major_version_t _major, minor_version_t _minor);
 
     void on_pong(client_t _client);
 
@@ -273,6 +270,10 @@ private:
 
     std::set<eventgroup_t> get_subscribed_eventgroups(service_t _service,
             instance_t _instance);
+
+    void on_availability(service_t _service, instance_t _instance,
+                         bool _is_available, major_version_t _major, minor_version_t _minor) override;
+
 private:
     return_code_e check_error(const byte_t *_data, length_t _size,
             instance_t _instance);
@@ -371,7 +372,8 @@ private:
             service_t _service, instance_t _instance, eventgroup_t _eventgroup,
             pending_subscription_id_t _pending_unsubscription_id);
 
-
+    bool is_service_requested(client_t _client, service_t _service, instance_t _instance,
+                              major_version_t _major, minor_version_t _minor);
 
     std::shared_ptr<routing_manager_stub> stub_;
     std::shared_ptr<sd::service_discovery> discovery_;
@@ -438,6 +440,9 @@ private:
     boost::asio::steady_timer watchdog_timer_;
     void watchdog_cbk(boost::system::error_code const &_error);
 #endif
+
+    std::mutex pending_subscriptions_cached_mutex_;
+    std::set<subscription_data_t> pending_subscriptions_cached_;
 
     std::mutex pending_offers_mutex_;
     // map to store pending offers.

@@ -25,9 +25,9 @@ public:
     virtual void stop_offer_service(client_t _client, service_t _service,
             instance_t _instance, major_version_t _major, minor_version_t _minor) = 0;
 
-    virtual void request_service(client_t _client, service_t _service,
-            instance_t _instance, major_version_t _major,
-            minor_version_t _minor, bool _use_exclusive_proxy) = 0;
+    virtual bool request_service(client_t _client, service_t _service,
+                                 instance_t _instance, major_version_t _major,
+                                 minor_version_t _minor, bool _use_exclusive_proxy) = 0;
 
     virtual void release_service(client_t _client, service_t _service,
             instance_t _instance) = 0;

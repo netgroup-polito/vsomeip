@@ -9,7 +9,7 @@
 #include <cstdint>
 
 namespace big_payload_test {
-    constexpr std::uint32_t BIG_PAYLOAD_SIZE = 1024*600;
+    constexpr std::uint32_t BIG_PAYLOAD_SIZE = 1024*600 - 28 /* Account for authentication data */;
     constexpr std::uint32_t BIG_PAYLOAD_SIZE_RANDOM = 1024*1024*10;
     constexpr vsomeip::byte_t DATA_SERVICE_TO_CLIENT = 0xAA;
     constexpr vsomeip::byte_t DATA_CLIENT_TO_SERVICE = 0xFF;

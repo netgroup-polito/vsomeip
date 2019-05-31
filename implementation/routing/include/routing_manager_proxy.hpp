@@ -46,9 +46,9 @@ public:
     void stop_offer_service(client_t _client, service_t _service,
             instance_t _instance, major_version_t _major, minor_version_t _minor);
 
-    void request_service(client_t _client, service_t _service,
-            instance_t _instance, major_version_t _major,
-            minor_version_t _minor, bool _use_exclusive_proxy);
+    bool request_service(client_t _client, service_t _service,
+                         instance_t _instance, major_version_t _major,
+                         minor_version_t _minor, bool _use_exclusive_proxy);
 
     void release_service(client_t _client, service_t _service,
             instance_t _instance);
@@ -87,6 +87,7 @@ public:
             client_t _bound_client,
             const boost::asio::ip::address &_remote_address,
             std::uint16_t _remote_port);
+
     void on_error(const byte_t *_data, length_t _length, endpoint *_receiver,
                   const boost::asio::ip::address &_remote_address,
                   std::uint16_t _remote_port);
@@ -143,7 +144,7 @@ private:
     void on_subscribe_ack(client_t _client, service_t _service,
             instance_t _instance, eventgroup_t _eventgroup, event_t _event);
 
-    void cache_event_payload(const std::shared_ptr<message> &_message);
+    void cache_event(const byte_t *_data, length_t _size, service_t _service, instance_t _instance, event_t _event);
 
     void on_stop_offer_service(service_t _service, instance_t _instance,
             major_version_t _major, minor_version_t _minor);
@@ -182,6 +183,9 @@ private:
     void send_unsubscribe_ack(service_t _service, instance_t _instance,
                               eventgroup_t _eventgroup,
                               pending_subscription_id_t _subscription_id);
+
+    void on_availability(service_t _service, instance_t _instance,
+                         bool _is_available, major_version_t _major, minor_version_t _minor) override;
 
 private:
     enum class inner_state_type_e : std::uint8_t {

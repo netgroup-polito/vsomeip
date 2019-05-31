@@ -4,6 +4,11 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include "../include/serviceinfo.hpp"
+#include "../../security/include/session_parameters.hpp"
+#include "../../security/include/message_serializer.hpp"
+#include "../../security/include/message_deserializer.hpp"
+#include "../../crypto/symmetric/include/mac_algorithm.hpp"
+#include "../../crypto/symmetric/include/aead_algorithm.hpp"
 
 namespace vsomeip {
 

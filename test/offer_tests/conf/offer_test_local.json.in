@@ -1,0 +1,33 @@
+{
+    "unicast":"127.0.0.1",
+    "logging":
+    {
+        "level":"info",
+        "console":"true",
+        "file":
+        {
+            "enable":"false",
+            "path":"/tmp/vsomeip.log"
+        },
+        "dlt":"false"
+    },
+    "routing":"vsomeipd",
+    "service-discovery":
+    {
+        "enable":"false"
+    },
+    "service-security" :
+    {
+        "certificates-path" : "@CRYPTO_CERTIFICATES_FOLDER_RELATIVE@",
+        "root-certificate-fingerprint" : "@CRYPTO_ROOT_CA_CERTIFICATE@",
+        "private-key-path" : "@CRYPTO_CHOSEN_KEY_RELATIVE@",
+        "certificate-fingerprint" : "@CRYPTO_CHOSEN_CERTIFICATE@"
+    },
+    "configuration-security" :
+    {
+        "signature-algorithm" : "rsa2048-sha256",
+        "certificate-fingerprint" : "@CRYPTO_CONFIGURATION_SIGNATURE_CERTIFICATE@",
+        "signature" : "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+}
+

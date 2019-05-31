@@ -9,22 +9,30 @@
 #include <map>
 #include <memory>
 #include <boost/asio/ip/address.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <vsomeip/primitive_types.hpp>
 #include <vsomeip/constants.hpp>
 
 #include "../../service_discovery/include/message_impl.hpp"
 #include "../../configuration/include/internal.hpp"
+#include "../../security/include/session_establishment.hpp"
+
+#include "../../logging/include/logger.hpp"
 
 namespace vsomeip {
 
 class serviceinfo;
 class endpoint_definition;
-
+class session_parameters;
 
 typedef std::map<service_t,
                  std::map<instance_t,
                           std::shared_ptr<serviceinfo> > > services_t;
+
+typedef std::map<service_t,
+        std::map<instance_t,
+                std::shared_ptr<session_parameters> > > sessions_t;
 
 class eventgroupinfo;
 
@@ -117,6 +125,35 @@ enum remote_subscription_state_e : std::uint8_t {
     SUBSCRIPTION_PENDING,
     SUBSCRIPTION_ERROR
 };
+
+struct pending_session_establishment_request_t {
+
+    using challenge_t = session_establishment_message::challenge_t;
+
+    pending_session_establishment_request_t(major_version_t _major_version, minor_version_t _minor_version,
+                                            boost::asio::io_service &_io)
+            : major_version_(_major_version), minor_version_(_minor_version),
+              request_timer_(_io), establishment_completed_(false) {
+    }
+
+    void add_challenge(const challenge_t &_challenge) {
+        challenges_.insert(_challenge);
+    }
+
+    bool is_valid_challenge(const challenge_t &_challenge) {
+        return challenges_.find(_challenge) != challenges_.end();
+    }
+
+    mutable std::mutex mutex_;
+    const major_version_t major_version_;
+    const minor_version_t minor_version_;
+    std::set<challenge_t> challenges_;
+    boost::asio::steady_timer request_timer_;
+    bool establishment_completed_;
+};
+
+typedef std::map<service_t, std::map<instance_t,
+                std::shared_ptr<pending_session_establishment_request_t> > > pending_session_establishment_requests_t;
 
 }
 // namespace vsomeip

@@ -27,11 +27,11 @@
 #include "../../endpoints/include/local_client_endpoint_impl.hpp"
 #include "../../endpoints/include/local_server_endpoint_impl.hpp"
 #include "../../logging/include/logger.hpp"
-#include "../../message/include/deserializer.hpp"
-#include "../../message/include/serializer.hpp"
 #include "../../service_discovery/include/runtime.hpp"
 #include "../../utility/include/byteorder.hpp"
 #include "../../utility/include/utility.hpp"
+
+#include "../../security/include/message_deserializer.hpp"
 
 namespace vsomeip {
 
@@ -160,9 +160,10 @@ const std::shared_ptr<configuration> routing_manager_proxy::get_configuration() 
 bool routing_manager_proxy::offer_service(client_t _client, service_t _service,
         instance_t _instance, major_version_t _major, minor_version_t _minor) {
     if(!routing_manager_base::offer_service(_client, _service, _instance, _major, _minor)) {
-        VSOMEIP_WARNING << "routing_manager_proxy::offer_service,"
-                << "routing_manager_base::offer_service returned false";
+        return false;
     }
+    send_pending_events(_service, _instance);
+
     {
         std::lock_guard<std::mutex> its_lock(state_mutex_);
         if (state_ == inner_state_type_e::ST_REGISTERED) {
@@ -255,11 +256,13 @@ void routing_manager_proxy::stop_offer_service(client_t _client,
     }
 }
 
-void routing_manager_proxy::request_service(client_t _client,
-        service_t _service, instance_t _instance, major_version_t _major,
-        minor_version_t _minor, bool _use_exclusive_proxy) {
-    routing_manager_base::request_service(_client, _service, _instance, _major,
-            _minor, _use_exclusive_proxy);
+bool routing_manager_proxy::request_service(client_t _client,
+                                            service_t _service, instance_t _instance, major_version_t _major,
+                                            minor_version_t _minor, bool _use_exclusive_proxy) {
+    if (!routing_manager_base::request_service(_client, _service, _instance, _major,
+                                               _minor, _use_exclusive_proxy)) {
+        return false;
+    }
     {
         std::lock_guard<std::mutex> its_lock(state_mutex_);
         size_t request_debouncing_time = configuration_->get_request_debouncing(host_->get_name());
@@ -285,6 +288,8 @@ void routing_manager_proxy::request_service(client_t _client,
             }
         }
     }
+
+    return true;
 }
 
 void routing_manager_proxy::release_service(client_t _client,
@@ -452,6 +457,10 @@ void routing_manager_proxy::send_subscribe(client_t _client, service_t _service,
         instance_t _instance, eventgroup_t _eventgroup, major_version_t _major,
         event_t _event, subscription_type_e _subscription_type) {
     (void)_client;
+
+    if (!is_session_established(_service, _instance)) {
+        return;
+    }
 
     byte_t its_command[VSOMEIP_SUBSCRIBE_COMMAND_SIZE];
     uint32_t its_size = VSOMEIP_SUBSCRIBE_COMMAND_SIZE
@@ -807,6 +816,18 @@ void routing_manager_proxy::on_disconnect(std::shared_ptr<endpoint> _endpoint) {
     }
 }
 
+void routing_manager_proxy::on_availability(service_t _service, instance_t _instance,
+                                            bool _is_available, major_version_t _major, minor_version_t _minor) {
+
+    host_->on_availability(_service, _instance, _is_available, _major, _minor);
+    if (_is_available) {
+        std::lock_guard<std::mutex> its_lock(state_mutex_);
+        send_pending_subscriptions(_service, _instance, _major);
+    } else {
+        clear_session_parameters(_service, _instance);
+    }
+}
+
 void routing_manager_proxy::on_error(
         const byte_t *_data, length_t _length, endpoint *_receiver,
         const boost::asio::ip::address &_remote_address,
@@ -880,7 +901,7 @@ void routing_manager_proxy::on_message(const byte_t *_data, length_t _size,
             instance_t its_instance;
             bool its_reliable;
             bool its_is_vslid_crc;
-            std::memcpy(&its_instance,&_data[VSOMEIP_SEND_COMMAND_INSTANCE_POS_MIN],
+            std::memcpy(&its_instance, &_data[VSOMEIP_SEND_COMMAND_INSTANCE_POS_MIN],
                         sizeof(instance_t));
             std::memcpy(&its_reliable, &_data[VSOMEIP_SEND_COMMAND_RELIABLE_POS],
                         sizeof(its_reliable));
@@ -889,14 +910,35 @@ void routing_manager_proxy::on_message(const byte_t *_data, length_t _size,
 
             // reduce by size of instance, flush, reliable, client and is_valid_crc flag
             const std::uint32_t its_message_size = its_length -
-                    (VSOMEIP_SEND_COMMAND_SIZE - VSOMEIP_COMMAND_HEADER_SIZE);
+                                                   (VSOMEIP_SEND_COMMAND_SIZE - VSOMEIP_COMMAND_HEADER_SIZE);
 
-            auto a_deserializer = get_deserializer();
-            a_deserializer->set_data(&_data[VSOMEIP_SEND_COMMAND_PAYLOAD_POS],
-                    its_message_size);
-            std::shared_ptr<message> its_message(a_deserializer->deserialize_message());
-            a_deserializer->reset();
-            put_deserializer(a_deserializer);
+            const byte_t *message_ptr = _data + VSOMEIP_SEND_COMMAND_PAYLOAD_POS;
+            its_service = 0;
+            method_t its_method = 0;
+
+            if (its_message_size <= VSOMEIP_METHOD_POS_MAX) {
+                VSOMEIP_ERROR << "Routing proxy: on_message: "
+                              << "SomeIP-Header deserialization failed!";
+                return;
+            }
+
+            its_service = VSOMEIP_BYTES_TO_WORD(message_ptr[VSOMEIP_SERVICE_POS_MIN],
+                                                message_ptr[VSOMEIP_SERVICE_POS_MAX]);
+            its_method = VSOMEIP_BYTES_TO_WORD(message_ptr[VSOMEIP_METHOD_POS_MIN],
+                                               message_ptr[VSOMEIP_METHOD_POS_MAX]);
+
+            if (dispatch_session_establishment_message(its_service, its_instance, its_method, its_reliable,
+                                                       message_ptr, its_message_size)) {
+                return;
+            }
+
+            auto deserializer = get_deserializer(its_service, its_instance);
+            if (!deserializer) {
+                return;
+            }
+
+            std::shared_ptr<message> its_message(
+                deserializer->deserialize_message(message_ptr, its_message_size));
 
             if (its_message) {
                 its_message->set_instance(its_instance);
@@ -912,7 +954,7 @@ void routing_manager_proxy::on_message(const byte_t *_data, length_t _size,
                                 << " : Skip message!";
                         return;
                     }
-                    cache_event_payload(its_message);
+                    cache_event(_data, _size, its_message->get_service(), its_message->get_instance(), its_message->get_method());
                 } else if (utility::is_request(its_message->get_message_type())) {
                     if (!configuration_->is_client_allowed(its_message->get_client(),
                             its_message->get_service(), its_message->get_instance())) {
@@ -947,8 +989,7 @@ void routing_manager_proxy::on_message(const byte_t *_data, length_t _size,
 #endif
                 host_->on_message(std::move(its_message));
             } else {
-                VSOMEIP_ERROR << "Routing proxy: on_message: "
-                              << "SomeIP-Header deserialization failed!";
+                VSOMEIP_ERROR << "Routing proxy: on_message: deserialization failed!";
             }
         }
             break;
@@ -1301,6 +1342,11 @@ void routing_manager_proxy::on_routing_info(const byte_t *_data,
                         j += uint32_t(sizeof(minor_version_t));
 
                         if (routing_info_entry == routing_info_entry_e::RIE_ADD_SERVICE_INSTANCE) {
+                            VSOMEIP_INFO << "ON_AVAILABLE("
+                                         << std::hex << std::setw(4) << std::setfill('0') << get_client() <<"): ["
+                                         << std::hex << std::setw(4) << std::setfill('0') << its_service << "."
+                                         << std::hex << std::setw(4) << std::setfill('0') << its_instance
+                                         << ":" << std::dec << int(its_major) << "." << std::dec << its_minor << "]";
                             {
                                 std::lock_guard<std::mutex> its_lock(known_clients_mutex_);
                                 known_clients_.insert(its_client);
@@ -1309,16 +1355,8 @@ void routing_manager_proxy::on_routing_info(const byte_t *_data,
                                 std::lock_guard<std::mutex> its_lock(local_services_mutex_);
                                 local_services_[its_service][its_instance] = std::make_tuple(its_major, its_minor, its_client);
                             }
-                            {
-                                std::lock_guard<std::mutex> its_lock(state_mutex_);
-                                send_pending_subscriptions(its_service, its_instance, its_major);
-                            }
-                            host_->on_availability(its_service, its_instance, true, its_major, its_minor);
-                            VSOMEIP_INFO << "ON_AVAILABLE("
-                                << std::hex << std::setw(4) << std::setfill('0') << get_client() <<"): ["
-                                << std::hex << std::setw(4) << std::setfill('0') << its_service << "."
-                                << std::hex << std::setw(4) << std::setfill('0') << its_instance
-                                << ":" << std::dec << int(its_major) << "." << std::dec << its_minor << "]";
+                            send_session_establishment_request(its_service, its_instance, its_major, its_minor,
+                                                               get_client() == its_client);
                         } else if (routing_info_entry == routing_info_entry_e::RIE_DEL_SERVICE_INSTANCE) {
                             {
                                 std::lock_guard<std::mutex> its_lock(local_services_mutex_);
@@ -1331,7 +1369,7 @@ void routing_manager_proxy::on_routing_info(const byte_t *_data,
                                 }
                             }
                             on_stop_offer_service(its_service, its_instance, its_major, its_minor);
-                            host_->on_availability(its_service, its_instance, false, its_major, its_minor);
+                            on_availability(its_service, its_instance, false, its_major, its_minor);
                             VSOMEIP_INFO << "ON_UNAVAILABLE("
                                 << std::hex << std::setw(4) << std::setfill('0') << get_client() <<"): ["
                                 << std::hex << std::setw(4) << std::setfill('0') << its_service << "."
@@ -1717,29 +1755,27 @@ void routing_manager_proxy::on_identify_response(client_t _client, service_t _se
     }
 }
 
-void routing_manager_proxy::cache_event_payload(
-        const std::shared_ptr<message> &_message) {
-    const service_t its_service(_message->get_service());
-    const instance_t its_instance(_message->get_instance());
-    const method_t its_method(_message->get_method());
-    std::shared_ptr<event> its_event = find_event(its_service, its_instance, its_method);
+void routing_manager_proxy::cache_event(const byte_t *_data, length_t _size,
+                                        service_t _service, instance_t _instance, event_t _event) {
+
+    std::shared_ptr<event> its_event = find_event(_service, _instance, _event);
     if (its_event) {
         if (its_event->is_field()) {
-            its_event->set_payload_dont_notify(_message->get_payload());
+            its_event->set_message_dont_notify(_data, _size);
         }
     } else {
         // we received a event which was not yet requested
         std::set<eventgroup_t> its_eventgroups;
         // create a placeholder field until someone requests this event with
         // full information like eventgroup, field or not etc.
-        routing_manager_base::register_event(host_->get_client(), its_service,
-                its_instance, its_method, its_eventgroups, true,
+        routing_manager_base::register_event(host_->get_client(), _service,
+                _instance, _event, its_eventgroups, true,
                 std::chrono::milliseconds::zero(), false,
                 nullptr,
                 false, false, true);
-        std::shared_ptr<event> its_event = find_event(its_service, its_instance, its_method);
+        std::shared_ptr<event> its_event = find_event(_service, _instance, _event);
         if (its_event) {
-                its_event->set_payload_dont_notify(_message->get_payload());
+            its_event->set_message_dont_notify(_data, _size);
         }
     }
 
@@ -1764,7 +1800,7 @@ void routing_manager_proxy::on_stop_offer_service(service_t _service,
         }
     }
     for (auto &e : events) {
-        e.second->unset_payload();
+        e.second->unset_message();
     }
 }
 
@@ -1833,25 +1869,12 @@ void routing_manager_proxy::notify_remote_initially(service_t _service, instance
             if (e->is_field() && e->is_set()
                     && _events_to_exclude.find(e->get_event())
                             == _events_to_exclude.end()) {
-                std::shared_ptr<message> its_notification
-                    = runtime::get()->create_notification();
-                its_notification->set_service(_service);
-                its_notification->set_instance(_instance);
-                its_notification->set_method(e->get_event());
-                its_notification->set_payload(e->get_payload());
-                if (service_info) {
-                    its_notification->set_interface_version(service_info->get_major());
-                }
-                std::lock_guard<std::mutex> its_lock(serialize_mutex_);
-                if (serializer_->serialize(its_notification.get())) {
-                    {
-                        std::lock_guard<std::mutex> its_lock(sender_mutex_);
-                        if (sender_) {
-                            send_local(sender_, VSOMEIP_ROUTING_CLIENT, serializer_->get_data(),
-                                    serializer_->get_size(), _instance, true, false, VSOMEIP_NOTIFY);
-                        }
-                    }
-                    serializer_->reset();
+
+                std::vector<byte_t> message = e->get_message();
+                std::lock_guard<std::mutex> its_lock(sender_mutex_);
+                if (sender_) {
+                    send_local(sender_, VSOMEIP_ROUTING_CLIENT, message.data(),
+                               static_cast<uint32_t>(message.size()), _instance, true, false, VSOMEIP_NOTIFY);
                 } else {
                     VSOMEIP_ERROR << "Failed to serialize message. Check message size!";
                 }

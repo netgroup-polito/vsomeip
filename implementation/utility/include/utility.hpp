@@ -15,6 +15,12 @@
 #include <vsomeip/message.hpp>
 #include "criticalsection.hpp"
 
+#define FLAGS_SECURITY static_cast<byte_t>(0x0Cu)                 /* 00001100 */
+#define FLAGS_SECURITY_CLEAR static_cast<byte_t>(~FLAGS_SECURITY) /* 11110011 */
+#define FLAGS_NOSEC static_cast<byte_t>(0x00u)                    /* 00000000 */
+#define FLAGS_AUTHENTICATION static_cast<byte_t>(0x08u)           /* 00001000 */
+#define FLAGS_CONFIDENTIALITY static_cast<byte_t>(0x0Cu)          /* 00001100 */
+
 namespace vsomeip {
 
 class configuration;
@@ -30,6 +36,7 @@ public:
     }
 
     static inline bool is_request(message_type_e _type) {
+        _type = clear_security_flags(_type);
         return ((_type < message_type_e::MT_NOTIFICATION)
                 || (_type >= message_type_e::MT_REQUEST_ACK
                         && _type <= message_type_e::MT_REQUEST_NO_RETURN_ACK));
@@ -44,6 +51,7 @@ public:
     }
 
     static inline bool is_request_no_return(message_type_e _type) {
+        _type = clear_security_flags(_type);
         return (_type == message_type_e::MT_REQUEST_NO_RETURN
                 || _type == message_type_e::MT_REQUEST_NO_RETURN_ACK);
     }
@@ -53,6 +61,7 @@ public:
     }
 
     static inline bool is_response(message_type_e _type) {
+        _type = clear_security_flags(_type);
         return _type == message_type_e::MT_RESPONSE;
     }
 
@@ -61,6 +70,7 @@ public:
     }
 
     static inline bool is_error(message_type_e _type) {
+        _type = clear_security_flags(_type);
         return _type == message_type_e::MT_ERROR;
     }
 
@@ -73,7 +83,41 @@ public:
     }
 
     static inline bool is_notification(message_type_e _type) {
+        _type = clear_security_flags(_type);
         return (_type == message_type_e::MT_NOTIFICATION);
+    }
+
+    static inline byte_t clear_security_flags(byte_t _type) {
+        return static_cast<message_type_e>(_type) == message_type_e::MT_UNKNOWN
+               ? _type : (FLAGS_SECURITY_CLEAR & _type);
+    }
+
+    static inline message_type_e clear_security_flags(message_type_e _type) {
+        return _type == message_type_e::MT_UNKNOWN ? _type
+               : static_cast<message_type_e>(FLAGS_SECURITY_CLEAR & static_cast<byte_t>(_type));
+    }
+
+    static inline bool is_nosec_level(byte_t _type) {
+        return static_cast<message_type_e>(_type) != message_type_e::MT_UNKNOWN
+               && (FLAGS_SECURITY & _type) == FLAGS_NOSEC;
+    }
+
+    static inline bool is_authentication_level(byte_t _type) {
+        return static_cast<message_type_e>(_type) != message_type_e::MT_UNKNOWN
+               && (FLAGS_SECURITY & _type) == FLAGS_AUTHENTICATION;
+    }
+
+    static byte_t set_authentication_flag(byte_t _type) {
+        return _type | FLAGS_AUTHENTICATION;
+    }
+
+    static inline bool is_confidentiality_level(byte_t _type) {
+        return static_cast<message_type_e>(_type) != message_type_e::MT_UNKNOWN
+               && (FLAGS_SECURITY & _type) == FLAGS_CONFIDENTIALITY;
+    }
+
+    static byte_t set_confidentiality_flag(byte_t _type) {
+        return _type | FLAGS_CONFIDENTIALITY;
     }
 
     static uint64_t get_message_size(const byte_t *_data, size_t _size);
@@ -111,6 +155,7 @@ public:
     static std::set<client_t> get_used_client_ids();
 
     static inline bool is_valid_message_type(message_type_e _type) {
+        _type = clear_security_flags(_type);
         return (_type == message_type_e::MT_REQUEST
                 || _type == message_type_e::MT_REQUEST_NO_RETURN
                 || _type == message_type_e::MT_NOTIFICATION

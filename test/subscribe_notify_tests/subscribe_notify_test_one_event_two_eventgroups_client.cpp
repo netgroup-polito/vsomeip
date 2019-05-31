@@ -255,14 +255,15 @@ public:
             // subscribe
             std::unique_lock<std::mutex> its_events_lock(events_mutex_);
             subscribe_at_service();
-            wait_for_events(std::move(its_events_lock), 4, std::move(events_condition_));
+            wait_for_events(std::move(its_events_lock), 3 /* modified */, std::move(events_condition_));
             check_received_events_payload(0x1);
 
             std::set<std::pair<vsomeip::event_t, std::uint32_t>> its_expected;
             its_expected.insert({info_.event_id, 1});
             its_expected.insert({static_cast<vsomeip::event_t>(info_.event_id+1), 1});
             // Initial event for the event which is member of both eventgroups has to be sent twice
-            its_expected.insert({static_cast<vsomeip::event_t>(info_.event_id+2), 2});
+            // Actually, it is received only once, since it is detected as duplicated
+            its_expected.insert({static_cast<vsomeip::event_t>(info_.event_id+2), 1 /* modified */});
 
             check_received_events_number(its_expected);
             its_expected.clear();

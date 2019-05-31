@@ -207,6 +207,10 @@ void deserializer::reset() {
     }
 }
 
+uint8_t *deserializer::get_data() {
+    return data_.data();
+}
+
 #ifdef VSOMEIP_DEBUGGING
 void deserializer::show() const {
     std::stringstream its_message;

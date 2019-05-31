@@ -145,7 +145,7 @@ public:
         VSOMEIP_INFO << "Shutdown method was called, going down now.";
         const double average_load(std::accumulate(results_.begin(), results_.end(), 0.0) / static_cast<double>(results_.size()));
         VSOMEIP_INFO << "Received: " << number_of_received_messages_total_
-            << " in total (excluding control messages). This caused: "
+            << " messages in total (excluding control messages). This caused: "
             << std::fixed << std::setprecision(2)
             << average_load << "% load in average (average of "
             << results_.size() << " measurements).";
@@ -157,7 +157,7 @@ public:
             }
         }
         const double average_load_no_zero(std::accumulate(results_no_zero.begin(), results_no_zero.end(), 0.0) / static_cast<double>(results_no_zero.size()));
-        VSOMEIP_INFO << "Sent: " << number_of_received_messages_total_
+        VSOMEIP_INFO << "Received: " << number_of_received_messages_total_
             << " messages in total (excluding control messages). This caused: "
             << std::fixed << std::setprecision(2)
             << average_load_no_zero << "% load in average, if measured cpu load "

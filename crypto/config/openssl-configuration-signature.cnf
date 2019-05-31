@@ -1,0 +1,23 @@
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+req_extensions = req_ext
+distinguished_name = dn
+
+[ dn ]
+C=IT
+ST=Italy
+L=Turin
+O=vsomeip
+OU=None
+emailAddress=None
+CN=ConfigurationSignature
+
+[ req_ext ]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature
+subjectAltName = @alt_names
+
+[ alt_names ]
+URI.001 = vsomeip:configuration-signature

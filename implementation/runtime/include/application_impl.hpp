@@ -143,6 +143,7 @@ public:
     // routing_manager_host
     VSOMEIP_EXPORT const std::string & get_name() const;
     VSOMEIP_EXPORT client_t get_client() const;
+    VSOMEIP_EXPORT session_t get_session();
     VSOMEIP_EXPORT std::shared_ptr<configuration> get_configuration() const;
     VSOMEIP_EXPORT boost::asio::io_service & get_io();
 

@@ -23,6 +23,7 @@ public:
     }
 
     virtual client_t get_client() const = 0;
+    virtual session_t get_session() = 0;
     virtual const std::string & get_name() const = 0;
     virtual std::shared_ptr<configuration> get_configuration() const = 0;
     virtual boost::asio::io_service & get_io() = 0;

@@ -72,6 +72,10 @@ bool serializer::serialize(const std::vector<byte_t> &_data) {
     return true;
 }
 
+byte_t * serializer::get_data() {
+    return data_.data();
+}
+
 const byte_t * serializer::get_data() const {
     return data_.data();
 }

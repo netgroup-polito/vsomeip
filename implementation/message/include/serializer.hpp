@@ -28,6 +28,7 @@ public:
     bool serialize(const uint8_t *_data, uint32_t _length);
     bool serialize(const std::vector<byte_t> &_data);
 
+    virtual uint8_t * get_data();
     virtual const uint8_t * get_data() const;
     virtual uint32_t get_capacity() const;
     virtual uint32_t get_size() const;

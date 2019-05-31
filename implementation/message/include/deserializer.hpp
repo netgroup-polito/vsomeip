@@ -49,6 +49,8 @@ public:
 
     VSOMEIP_EXPORT void reset();
 
+    VSOMEIP_EXPORT uint8_t * get_data();
+
 #ifdef VSOMEIP_DEBUGGING
     VSOMEIP_EXPORT void show() const;
 #endif

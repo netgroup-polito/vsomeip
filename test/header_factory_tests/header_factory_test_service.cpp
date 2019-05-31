@@ -113,7 +113,8 @@ void header_factory_test_service::on_message(const std::shared_ptr<vsomeip::mess
     ASSERT_EQ(_request->get_message_type(), vsomeip::message_type_e::MT_REQUEST);
 
     // check the session id.
-    ASSERT_EQ(_request->get_session(), static_cast<vsomeip::session_t>(number_of_received_messages_));
+    ASSERT_EQ(_request->get_session() - 1 /* The first session ID is used during session establishment */,
+            static_cast<vsomeip::session_t>(number_of_received_messages_));
 
 
     // send response

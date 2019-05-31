@@ -12,6 +12,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 
+#include <boost/algorithm/hex.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>
@@ -27,6 +28,8 @@
 #include "../include/eventgroup.hpp"
 #include "../include/service.hpp"
 #include "../include/internal.hpp"
+#include "../../crypto/asymmetric/include/asymmetric_crypto_public.hpp"
+#include "../../crypto/asymmetric/include/rsa_digital_certificate.hpp"
 #include "../../logging/include/logger_impl.hpp"
 #include "../../routing/include/event.hpp"
 #include "../../service_discovery/include/defines.hpp"
@@ -99,7 +102,8 @@ configuration_impl::configuration_impl(const configuration_impl &_other)
       permissions_shm_(VSOMEIP_DEFAULT_SHM_PERMISSION),
       umask_(VSOMEIP_DEFAULT_UMASK_LOCAL_ENDPOINTS),
       endpoint_queue_limit_external_(_other.endpoint_queue_limit_external_),
-      endpoint_queue_limit_local_(_other.endpoint_queue_limit_local_) {
+      endpoint_queue_limit_local_(_other.endpoint_queue_limit_local_),
+      service_security_(_other.service_security_) {
 
     applications_.insert(_other.applications_.begin(), _other.applications_.end());
     services_.insert(_other.services_.begin(), _other.services_.end());
@@ -218,47 +222,74 @@ bool configuration_impl::load(const std::string &_name) {
     std::set<std::string> its_failed;
 
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-    std::vector<element> its_mandatory_elements;
-    std::vector<element> its_optional_elements;
+    std::map<std::string, std::shared_ptr<element>> its_cached_elements;
+    std::vector<std::shared_ptr<element>> its_mandatory_elements;
+    std::vector<std::shared_ptr<element>> its_optional_elements;
 
     // Dummy initialization; maybe we'll find no logging configuration
     logger_impl::init(shared_from_this());
 
     // Look for the standard configuration file
-    read_data(its_input, its_mandatory_elements, its_failed, true);
+    read_data(its_input, its_cached_elements, its_mandatory_elements, its_failed, true);
+    if (!its_failed.empty()) {
+        // Tell, if reading of configuration file(s) failed.
+        // (This may fail if the logger configuration is incomplete/missing).
+        for (auto f : its_failed) {
+            VSOMEIP_ERROR << "Reading of configuration file \"" << f << "\" failed.";
+        }
+        return false;
+    }
     load_data(its_mandatory_elements, true, false);
 
     // If the configuration is incomplete, this is the routing manager configuration or
     // the routing is yet unknown, read the full set of configuration files
-    if (its_mandatory_elements.empty() ||
-            _name == get_routing_host() ||
-            "" == get_routing_host()) {
-        read_data(its_input, its_optional_elements, its_failed, false);
+    if (its_mandatory_elements.empty() || _name == get_routing_host() || get_routing_host().empty()) {
+        read_data(its_input, its_cached_elements, its_optional_elements, its_failed, false);
+        if (!its_failed.empty()) {
+            for (auto f : its_failed) {
+                VSOMEIP_ERROR << "Reading of configuration file \"" << f << "\" failed.";
+            }
+            return false;
+        }
         load_data(its_mandatory_elements, false, true);
         load_data(its_optional_elements, true, true);
     }
 
-    // Tell, if reading of configuration file(s) failed.
-    // (This may file if the logger configuration is incomplete/missing).
-    for (auto f : its_failed)
-        VSOMEIP_WARNING << "Reading of configuration file \""
-            << f << "\" failed. Configuration may be incomplete.";
-
     // set global unicast address for all services with magic cookies enabled
     set_magic_cookies_unicast_address();
+
+    // Verify whether the configuration files are correctly signed or not
+    for (const auto &element : its_cached_elements) {
+
+        const auto& its_content = element.second->content_;
+        const auto& its_security_info = element.second->configuration_security_;
+        auto digital_certificate = rsa_digital_certificate::get_certificate(
+                get_certificates_path(), its_security_info.certificate_fingerprint_,
+                get_root_certificate_fingerprint(), rsa_key_length::RSA_2048, digest_algorithm::MD_SHA256);
+
+        if (digital_certificate->is_valid()) {
+            if (digital_certificate->can_verify_configuration_signature()) {
+                auto public_key = digital_certificate->get_public_key();
+                if (public_key->verify(reinterpret_cast<const byte_t *>(its_content.data()),
+                                       static_cast<length_t>(its_content.size()),
+                                       its_security_info.signature_.data(),
+                                       static_cast<length_t>(its_security_info.signature_.size()))) {
+                    VSOMEIP_INFO << "Configuration file \"" << element.first << "\" signature verification succeeded";
+                    continue;
+                }
+            } else {
+                VSOMEIP_ERROR << "The digital certificate cannot be used to verify configuration signatures";
+            }
+        }
+
+        VSOMEIP_ERROR << "Configuration file \"" << element.first << "\" signature verification failed";
+        return false;
+    }
 
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
     VSOMEIP_INFO << "Parsed vsomeip configuration in "
             << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()
             << "ms";
-
-    for (auto i : its_input) {
-        if (utility::is_file(i))
-            VSOMEIP_INFO << "Using configuration file: \"" << i << "\".";
-
-        if (utility::is_folder(i))
-            VSOMEIP_INFO << "Using configuration folder: \"" << i << "\".";
-    }
 
     if (policy_enabled_ && check_credentials_)
         VSOMEIP_INFO << "Security configuration is active.";
@@ -272,20 +303,18 @@ bool configuration_impl::load(const std::string &_name) {
 }
 
 void configuration_impl::read_data(const std::set<std::string> &_input,
-        std::vector<element> &_elements, std::set<std::string> &_failed,
-        bool _mandatory_only) {
+                                   std::map<std::string, std::shared_ptr<element>> &_cached_elements,
+                                   std::vector<std::shared_ptr<element>> &_elements,
+                                   std::set<std::string> &_failed,
+                                   bool _mandatory_only) {
+
     for (auto i : _input) {
         if (utility::is_file(i)) {
             if (is_mandatory(i) != _mandatory_only) {
-                boost::property_tree::ptree its_tree;
-                try {
-                    boost::property_tree::json_parser::read_json(i, its_tree);
-                    _elements.push_back({ i, its_tree });
-                }
-                catch (boost::property_tree::json_parser_error &e) {
-    #ifdef _WIN32
-                    e; // silence MSVC warning C4101
-    #endif
+                auto element = read_file(i, _cached_elements);
+                if (element) {
+                    _elements.push_back(element);
+                } else {
                     _failed.insert(i);
                 }
             }
@@ -298,13 +327,11 @@ void configuration_impl::read_data(const std::set<std::string> &_input,
                 if (!boost::filesystem::is_directory(its_file_path)) {
                     std::string its_name = its_file_path.string();
                     if (is_mandatory(its_name) == _mandatory_only) {
-                        boost::property_tree::ptree its_tree;
-                        try {
-                            boost::property_tree::json_parser::read_json(its_name, its_tree);
-                            _elements.push_back({its_name, its_tree});
-                        }
-                        catch (...) {
-                            _failed.insert(its_name);
+                        auto element = read_file(i, _cached_elements);
+                        if (element) {
+                            _elements.push_back(element);
+                        } else {
+                            _failed.insert(i);
                         }
                     }
                 }
@@ -313,15 +340,81 @@ void configuration_impl::read_data(const std::set<std::string> &_input,
     }
 }
 
+std::shared_ptr<element> configuration_impl::read_file(
+        const std::string &_input, std::map<std::string, std::shared_ptr<element>> &_cached_elements) {
 
-bool configuration_impl::load_data(const std::vector<element> &_elements,
+    const auto &its_found = _cached_elements.find(_input);
+    // The file is already cached
+    if (its_found != _cached_elements.end()) {
+        return its_found->second;
+    }
+
+    std::ifstream its_stream(_input);
+    std::stringstream its_buffer;
+    its_buffer << its_stream.rdbuf();
+    if (!its_buffer) {
+        // Something went wrong while reading the file
+        return {};
+    }
+
+    boost::property_tree::ptree its_tree;
+    try {
+        boost::property_tree::json_parser::read_json(its_buffer, its_tree);
+    } catch (const boost::property_tree::json_parser_error &e) {
+        (void) e;
+        return {};
+    }
+
+    // Extract the information necessary to verify the signature
+    auto found_algorithm = its_tree.get_optional<std::string>("configuration-security.signature-algorithm");
+    auto found_fingerprint = its_tree.get_optional<std::string>("configuration-security.certificate-fingerprint");
+    auto found_signature = its_tree.get_optional<std::string>("configuration-security.signature");
+
+    if (!found_fingerprint || !found_signature) {
+        VSOMEIP_ERROR << "Mandatory configuration security information not found in file \"" << _input << "\"";
+        return {};
+    }
+
+    configuration_security its_configuration_security;
+
+    if (found_algorithm) {
+        std::stringstream its_stringstream;
+        its_stringstream << *found_algorithm;
+        its_stringstream >> its_configuration_security.signature_algorithm_;
+        if (asymmetric_crypto_algorithm::CA_INVALID == its_configuration_security.signature_algorithm_) {
+            VSOMEIP_ERROR << "Invalid signature algorithm: \"" << *found_algorithm << "\"";
+            return {};
+        }
+    } else {
+        its_configuration_security.signature_algorithm_ = asymmetric_crypto_algorithm::CA_RSA2048_SHA256;
+    }
+
+    its_configuration_security.certificate_fingerprint_ = load_certificate_fingerprint(*found_fingerprint);
+    its_configuration_security.signature_ = load_configuration_signature(
+            *found_signature, static_cast<int>(rsa_key_length::RSA_2048) / 8);
+    if (its_configuration_security.signature_.empty()) {
+        return {};
+    }
+
+    // Reset the signature value to be able to verify the signature itself
+    std::string its_content = its_buffer.str();
+    auto signature_pos = its_content.find("\"signature\"");
+    auto colon_pos = its_content.find(':', signature_pos);
+    auto begin = its_content.find('"', colon_pos) + 1;
+    auto length = its_content.find('"', begin) - begin;
+    its_content.replace(begin, length, length, '0');
+
+    return _cached_elements[_input] = std::make_shared<element>(
+            _input, its_content, its_tree, its_configuration_security);
+}
+
+bool configuration_impl::load_data(const std::vector<std::shared_ptr<element>> &_elements,
         bool _load_mandatory, bool _load_optional) {
     // Load logging configuration data
     std::set<std::string> its_warnings;
     if (!is_logging_loaded_) {
-        for (auto e : _elements)
-            is_logging_loaded_
-                = load_logging(e, its_warnings) || is_logging_loaded_;
+        for (const auto &e : _elements)
+            is_logging_loaded_ = load_logging(*e, its_warnings) || is_logging_loaded_;
 
         if (is_logging_loaded_) {
             logger_impl::init(shared_from_this());
@@ -334,30 +427,31 @@ bool configuration_impl::load_data(const std::vector<element> &_elements,
     bool has_applications(false);
     if (_load_mandatory) {
         // Load mandatory configuration data
-        for (auto e : _elements) {
-            has_routing = load_routing(e) || has_routing;
-            has_applications = load_applications(e) || has_applications;
-            load_network(e);
-            load_diagnosis_address(e);
-            load_payload_sizes(e);
-            load_endpoint_queue_sizes(e);
-            load_permissions(e);
-            load_policies(e);
-            load_tracing(e);
+        for (const auto &e : _elements) {
+            has_routing = load_routing(*e) || has_routing;
+            has_applications = load_applications(*e) || has_applications;
+            load_network(*e);
+            load_diagnosis_address(*e);
+            load_payload_sizes(*e);
+            load_endpoint_queue_sizes(*e);
+            load_permissions(*e);
+            load_policies(*e);
+            load_tracing(*e);
+            load_service_security(*e);
         }
     }
 
     if (_load_optional) {
-        for (auto e : _elements) {
-            load_unicast_address(e);
-            load_service_discovery(e);
-            load_services(e);
-            load_internal_services(e);
-            load_clients(e);
-            load_watchdog(e);
-            load_selective_broadcasts_support(e);
-            load_e2e(e);
-            load_debounce(e);
+        for (const auto &e : _elements) {
+            load_unicast_address(*e);
+            load_service_discovery(*e);
+            load_services(*e);
+            load_internal_services(*e);
+            load_clients(*e);
+            load_watchdog(*e);
+            load_selective_broadcasts_support(*e);
+            load_e2e(*e);
+            load_debounce(*e);
         }
     }
 
@@ -499,6 +593,9 @@ void configuration_impl::load_application_data(
     std::size_t its_max_dispatch_time(VSOMEIP_MAX_DISPATCH_TIME);
     std::size_t its_io_thread_count(VSOMEIP_IO_THREAD_COUNT);
     std::size_t its_request_debounce_time(VSOMEIP_REQUEST_DEBOUNCE_TIME);
+    std::string its_private_key_path;
+    certificate_fingerprint_t its_certificate_fingerprint{0};
+    application_fingerprint_t its_application_fingerprint{0};
     std::map<plugin_type_e, std::set<std::string>> plugins;
     for (auto i = _tree.begin(); i != _tree.end(); ++i) {
         std::string its_key(i->first);
@@ -536,6 +633,12 @@ void configuration_impl::load_application_data(
                 VSOMEIP_WARNING << "Max. request debounce time is 10.000ms";
                 its_request_debounce_time = 10000;
             }
+        } else if (its_key == "private-key-path") {
+            its_private_key_path = its_value;
+        } else if (its_key == "certificate-fingerprint") {
+            its_certificate_fingerprint = load_certificate_fingerprint(its_value);
+        } else if (its_key == "application-fingerprint") {
+            its_application_fingerprint = load_application_fingerprint(its_value);
         } else if (its_key == "plugins") {
             for (auto l = i->second.begin(); l != i->second.end(); ++l) {
                 for (auto n = l->second.begin(); n != l->second.end(); ++n) {
@@ -586,7 +689,9 @@ void configuration_impl::load_application_data(
             applications_[its_name]
                 = std::make_tuple(its_id, its_max_dispatchers,
                         its_max_dispatch_time, its_io_thread_count,
-                        its_request_debounce_time, plugins);
+                        its_request_debounce_time,
+                        its_private_key_path, its_certificate_fingerprint,
+                        its_application_fingerprint, plugins);
         } else {
             VSOMEIP_WARNING << "Multiple configurations for application "
                     << its_name << ". Ignoring a configuration from "
@@ -2746,7 +2851,7 @@ std::map<plugin_type_e, std::set<std::string>> configuration_impl::get_plugins(
 
     auto found_application = applications_.find(_name);
     if (found_application != applications_.end()) {
-        result = std::get<5>(found_application->second);
+        result = std::get<8>(found_application->second);
     }
 
     return result;
@@ -2962,6 +3067,73 @@ configuration::endpoint_queue_limit_t
 configuration_impl::get_endpoint_queue_limit_local() const {
     return endpoint_queue_limit_local_;
 }
+
+std::string configuration_impl::get_private_key_path(const std::string &_name) const {
+    std::string private_key_path;
+    auto found_application = applications_.find(_name);
+    if (found_application != applications_.end()) {
+        private_key_path = std::get<5>(found_application->second);
+    }
+
+    return private_key_path.empty()
+           ? service_security_.default_private_key_path_
+           : private_key_path;
+}
+
+certificate_fingerprint_t configuration_impl::get_certificate_fingerprint(const std::string &_name) const {
+    certificate_fingerprint_t certificate_fingerprint{0};
+    auto found_application = applications_.find(_name);
+    if (found_application != applications_.end()) {
+        certificate_fingerprint = std::get<6>(found_application->second);
+    }
+
+    return certificate_fingerprint == certificate_fingerprint_t{0}
+           ? service_security_.default_certificate_fingerprint_
+           : certificate_fingerprint;
+}
+
+crypto_algorithm_packed configuration_impl::get_crypto_algorithm(service_t _service, instance_t _instance) const {
+    return service_security_.get_crypto_algorithm(_service, _instance);
+}
+
+crypto_algorithm_packed configuration_impl::get_default_crypto_algorithm(security_level _security_level) const {
+    return service_security_.get_default_crypto_algorithm(_security_level);
+}
+
+std::string configuration_impl::get_certificates_path() const {
+    return service_security_.certificates_path_;
+}
+
+certificate_fingerprint_t configuration_impl::get_root_certificate_fingerprint() const {
+    return service_security_.root_certificate_fingerprint_;
+}
+
+uint8_t configuration_impl::get_session_establishment_max_repetitions() const {
+    return service_security_.session_establishment_max_repetitions_;
+}
+
+uint32_t configuration_impl::get_session_establishment_repetitions_delay() const {
+    return service_security_.session_establishment_repetitions_delay_;
+}
+
+float configuration_impl::get_session_establishment_repetitions_delay_ratio() const {
+    return service_security_.session_establishment_repetitions_delay_ratio_;
+}
+
+bool configuration_impl::are_application_fingerprints_enabled() const {
+    return service_security_.check_application_fingerprints_;
+}
+
+application_fingerprint_t configuration_impl::get_application_fingerprint(const std::string &_name) const {
+
+    auto found_application = applications_.find(_name);
+    if (found_application != applications_.end()) {
+        return std::get<7>(found_application->second);
+    }
+
+    return {};
+}
+
 
 void configuration_impl::load_endpoint_queue_sizes(const element &_element) {
     const std::string endpoint_queue_limits("endpoint-queue-limits");
@@ -3230,6 +3402,207 @@ std::shared_ptr<debounce> configuration_impl::get_debounce(
         }
     }
     return nullptr;
+}
+
+void configuration_impl::load_service_security(const element &_element) {
+
+    try {
+        auto its_service_security = _element.tree_.get_child("service-security");
+        for (auto i = its_service_security.begin(); i != its_service_security.end(); ++i) {
+            std::string its_key(i->first);
+            auto its_value(i->second);
+            std::stringstream its_converter;
+
+            if ("certificates-path" == its_key) {
+                service_security_.certificates_path_ = its_value.data();
+            } else if ("root-certificate-fingerprint" == its_key) {
+                service_security_.root_certificate_fingerprint_ = load_certificate_fingerprint(its_value.data());
+            } else if ("private-key-path" == its_key) {
+                service_security_.default_private_key_path_ = its_value.data();
+            } else if ("certificate-fingerprint" == its_key) {
+                service_security_.default_certificate_fingerprint_ = load_certificate_fingerprint(its_value.data());
+            } else if ("repetitions-max" == its_key) {
+                its_converter << std::dec << its_value.data();
+                its_converter >> service_security_.session_establishment_max_repetitions_;
+            } else if ("repetitions-delay" == its_key) {
+                its_converter << std::dec << its_value.data();
+                its_converter >> service_security_.session_establishment_repetitions_delay_;
+            } else if ("repetitions-delay-ratio" == its_key) {
+                its_converter << std::dec << its_value.data();
+                its_converter >> service_security_.session_establishment_repetitions_delay_ratio_;
+                if (service_security_.session_establishment_repetitions_delay_ratio_ < 1) {
+                    service_security_.session_establishment_repetitions_delay_ratio_ = 1;
+                }
+            } else if ("check-application-fingerprints" == its_key) {
+                service_security_.check_application_fingerprints_ = (its_value.data() == "true");
+            } else if ("services" == its_key) {
+                for (auto j = its_value.begin(); j != its_value.end(); ++j) {
+                    load_service_security_data(j->second);
+                }
+            } else if ("default-algorithms" == its_key) {
+                for (auto j = its_value.begin(); j != its_value.end(); ++j) {
+                    load_default_algorithm(j->second);
+                }
+            }
+        }
+    } catch (...) {
+        /* Do nothing */
+    }
+}
+
+void configuration_impl::load_service_security_data(const boost::property_tree::ptree &_tree) {
+
+    service_t its_service;
+    instance_t its_instance;
+    security_level its_security_level(security_level::SL_INVALID);
+    crypto_algorithm its_crypto_algorithm(crypto_algorithm::CA_INVALID);
+    bool service_set(false), instance_set(false);
+
+    try {
+        for (auto i = _tree.begin(); i != _tree.end(); ++i) {
+            std::string its_key(i->first);
+            std::string its_value(i->second.data());
+            std::stringstream its_converter;
+
+            if ("security-level" == its_key) {
+                its_converter << its_value;
+                its_converter >> its_security_level;
+                if (security_level::SL_INVALID == its_security_level) {
+                    VSOMEIP_WARNING << "Invalid security level: " << its_value;
+                }
+            } else if ("security-algorithm" == its_key) {
+                its_converter << its_value;
+                its_converter >> its_crypto_algorithm;
+                if (crypto_algorithm::CA_INVALID == its_crypto_algorithm) {
+                    VSOMEIP_WARNING << "Invalid crypto algorithm: " << its_value;
+                }
+            } else {
+                if (its_value.size() > 1 && its_value[0] == '0' && its_value[1] == 'x') {
+                    its_converter << std::hex << its_value;
+                } else {
+                    its_converter << std::dec << its_value;
+                }
+
+                if (its_key == "service") {
+                    its_converter >> its_service;
+                    service_set = true;
+                } else if (its_key == "instance") {
+                    its_converter >> its_instance;
+                    instance_set = true;
+                }
+            }
+        }
+
+        if (!service_set || !instance_set) {
+            VSOMEIP_WARNING << "Service security: service or instance id not set";
+            return;
+        }
+
+        if (security_level::SL_INVALID == its_security_level) {
+            if (crypto_algorithm::CA_INVALID != its_crypto_algorithm) {
+                VSOMEIP_WARNING << "Service security: security level not specified but crypto algorithm set";
+            }
+            return;
+        }
+
+        crypto_algorithm_packed its_algorithm_packed(its_security_level, its_crypto_algorithm);
+        if (crypto_algorithm::CA_INVALID != its_crypto_algorithm &&
+                !its_algorithm_packed.is_valid_combination()) {
+            VSOMEIP_WARNING << "Service security: invalid security level - crypto algorithm combination";
+            return;
+        }
+
+        service_security_.services_algorithms_[{its_service, its_instance}] = its_algorithm_packed;
+    } catch (...) {
+        /* Do nothing */
+    }
+}
+
+void configuration_impl::load_default_algorithm(const boost::property_tree::ptree &_tree) {
+    security_level its_security_level(security_level::SL_INVALID);
+    crypto_algorithm its_crypto_algorithm(crypto_algorithm::CA_INVALID);
+
+    try {
+        for (auto i = _tree.begin(); i != _tree.end(); ++i) {
+            std::string its_key(i->first);
+            std::string its_value(i->second.data());
+            std::stringstream its_converter;
+
+            if ("security-level" == its_key) {
+                its_converter << its_value;
+                its_converter >> its_security_level;
+                if (security_level::SL_INVALID == its_security_level) {
+                    VSOMEIP_WARNING << "Invalid security level: " << its_value;
+                }
+            } else if ("security-algorithm" == its_key) {
+                its_converter << its_value;
+                its_converter >> its_crypto_algorithm;
+                if (crypto_algorithm::CA_INVALID == its_crypto_algorithm) {
+                    VSOMEIP_WARNING << "Invalid crypto algorithm: " << its_value;
+                }
+            }
+        }
+
+        if (security_level::SL_INVALID == its_security_level ||
+            crypto_algorithm::CA_INVALID == its_crypto_algorithm) {
+            VSOMEIP_WARNING << "Default algorithms: security level or crypto algorithm not specified";
+            return;
+        }
+
+        crypto_algorithm_packed its_algorithm_packed(its_security_level, its_crypto_algorithm);
+        if (!its_algorithm_packed.is_valid_combination()) {
+            VSOMEIP_WARNING << "Default algorithms: invalid security level - crypto algorithm combination";
+            return;
+        }
+
+        service_security_.default_algorithms_[its_security_level] = its_algorithm_packed;
+    } catch (...) {
+        /* Do nothing */
+    }
+}
+
+bool configuration_impl::load_hex_value(const std::string &_value, byte_t *_output, size_t _expected_length,
+                                        const std::string &_id) const {
+
+    if (_value.size() == _expected_length * 2) {
+        try {
+            boost::algorithm::unhex(_value.begin(), _value.end(), _output);
+        } catch (const boost::algorithm::hex_decode_error &error) {
+            VSOMEIP_WARNING << "Invalid " << _id << " detected: '" << _value << "'";
+            return false;
+        }
+    } else {
+        VSOMEIP_WARNING << _id << " shall be " <<  _expected_length * 2 << " characters long: '" << _value << "'";
+        return false;
+    }
+
+    return true;
+}
+
+application_fingerprint_t configuration_impl::load_application_fingerprint(const std::string &_fingerprint) const {
+
+    application_fingerprint_t its_fingerprint;
+    if (!load_hex_value(_fingerprint, its_fingerprint.data(), its_fingerprint.size(), "Application Fingerprint")) {
+        its_fingerprint.fill(0);
+    }
+    return its_fingerprint;
+}
+
+certificate_fingerprint_t configuration_impl::load_certificate_fingerprint(const std::string &_fingerprint) const {
+
+    certificate_fingerprint_t its_fingerprint;
+    if (!load_hex_value(_fingerprint, its_fingerprint.data(), its_fingerprint.size(), "Certificate Fingerprint")) {
+        its_fingerprint.fill(0);
+    }
+    return its_fingerprint;
+}
+
+signature_t configuration_impl::load_configuration_signature(const std::string &_signature,
+                                                             size_t _signature_length) const {
+
+    signature_t its_signature(_signature_length);
+    return load_hex_value(_signature, its_signature.data(), its_signature.size(), "Configuration Signature")
+            ? its_signature : signature_t();
 }
 
 }  // namespace config

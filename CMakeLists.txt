@@ -121,9 +121,19 @@ MESSAGE( STATUS "Systemd was not found, watchdog disabled!")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWITHOUT_SYSTEMD")
 endif(NOT SystemD_FOUND)
 
+# OpenSSL
+find_package(OpenSSL 1.1.0 REQUIRED)
+include_directories( ${OPENSSL_INCLUDE_DIR} )
+
+if(OpenSSL_FOUND)
+    MESSAGE( STATUS "OpenSSL " ${OPENSSL_VERSION} " found")
+else()
+    MESSAGE( STATUS "OpenSSL not found!")
+endif()
+
 include_directories(
     include
-    implementation/helper
+    implementation/helper/include
     ${DLT_INCLUDE_DIRS}
 )
 
@@ -141,14 +151,21 @@ file(GLOB vsomeip_SRC
     "implementation/runtime/src/*.cpp"
     "implementation/utility/src/*.cpp"
     "implementation/plugin/src/*.cpp"
+    "implementation/crypto/*/src/*.cpp"
+    "implementation/security/src/*.cpp"
 )
 
 file(GLOB_RECURSE vsomeip_e2e_SRC
     "implementation/e2e_protection/src/*.cpp"
 )
 
+file(GLOB_RECURSE vsomeip_boost_SRC
+    "implementation/helper/src/*.cpp"
+)
+
 list(SORT vsomeip_SRC)
 list(SORT vsomeip_e2e_SRC)
+list(SORT vsomeip_boost_SRC)
 
 if (${VSOMEIP_HOTFIX_VERSION} EQUAL 0)
 add_definitions(-DVSOMEIP_VERSION="${VSOMEIP_VERSION}")
@@ -171,14 +188,14 @@ else()
     set(USE_RT "rt")
 endif()
 
-add_library(vsomeip SHARED ${vsomeip_SRC} ${vsomeip_e2e_SRC})
+add_library(vsomeip SHARED ${vsomeip_SRC} ${vsomeip_e2e_SRC} ${vsomeip_boost_SRC})
 set_target_properties (vsomeip PROPERTIES VERSION ${VSOMEIP_VERSION} SOVERSION ${VSOMEIP_MAJOR_VERSION})
 # PRIVATE means the listed libraries won't be included in the "link interface",
 # meaning the exported vsomeipTargets.cmake targets won't try to link against
 # them (which shouldn't be required). ${Boost_LIBRARIES} includes absolute
 # build host paths as of writing, which also makes this important as it breaks
 # the build.
-target_link_libraries(vsomeip PRIVATE ${Boost_LIBRARIES} ${USE_RT} ${DL_LIBRARY} ${DLT_LIBRARIES} ${SystemD_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(vsomeip PRIVATE ${Boost_LIBRARIES} ${USE_RT} ${DL_LIBRARY} ${DLT_LIBRARIES} ${SystemD_LIBRARIES} ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_THREAD_LIBS_INIT})
 
 # Configuration library
 file(GLOB vsomeip-cfg_SRC
@@ -318,6 +335,30 @@ install (
     DESTINATION "${INSTALL_CMAKE_DIR}"
     COMPONENT dev
 )
+
+
+##############################################################################
+# generate private keys and certificates
+##############################################################################
+
+if(NOT CONFIGURATION_SECURITY_LEVEL OR NOT (
+        CONFIGURATION_SECURITY_LEVEL STREQUAL "nosec" OR
+        CONFIGURATION_SECURITY_LEVEL STREQUAL "authentication" OR
+        CONFIGURATION_SECURITY_LEVEL STREQUAL "confidentiality"))
+
+    set(CONFIGURATION_SECURITY_LEVEL "confidentiality" CACHE STRING
+            "The chosen security level used to autogenerate configuration files")
+    string(TOUPPER ${CONFIGURATION_SECURITY_LEVEL} CONFIGURATION_SECURITY_LEVEL_UC)
+    message(STATUS "Default security level: ${CONFIGURATION_SECURITY_LEVEL_UC}")
+else()
+    string(TOUPPER ${CONFIGURATION_SECURITY_LEVEL} CONFIGURATION_SECURITY_LEVEL_UC)
+    message(STATUS "Configured security level: ${CONFIGURATION_SECURITY_LEVEL_UC}")
+endif()
+
+# Generate the cryptographic material
+set(CRYPTO_BASE_PATH "${PROJECT_SOURCE_DIR}/crypto")
+set(CRYPTO_GENERATED_PATH "${CRYPTO_BASE_PATH}/generated")
+include(${CRYPTO_BASE_PATH}/generate_crypto.cmake)
 
 ##############################################################################
 # build documentation

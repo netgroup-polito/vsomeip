@@ -21,7 +21,7 @@ bool bench_publish_subscribe_subscriber::init() {
 
     app_->register_message_handler(bench_globals::BENCH_SERVICE_SERVICE_ID,
                                    bench_globals::BENCH_SERVICE_INSTANCE_ID,
-                                   bench_globals::BENCH_SERVICE_EVENT_ID,
+                                   bench_globals::BENCH_SERVICE_EVENT_UDP_ID,
                                    std::bind(&bench_publish_subscribe_subscriber::on_message, this, std::placeholders::_1));
 
     app_->register_message_handler(bench_globals::BENCH_SERVICE_SERVICE_ID,
@@ -52,10 +52,10 @@ void bench_publish_subscribe_subscriber::on_state(vsomeip::state_type_e _state) 
         app_->request_service(bench_globals::BENCH_SERVICE_SERVICE_ID, bench_globals::BENCH_SERVICE_INSTANCE_ID);
 
         std::set<vsomeip::eventgroup_t> its_groups;
-        its_groups.insert(bench_globals::BENCH_SERVICE_EVENTGROUP_ID);
+        its_groups.insert(bench_globals::BENCH_SERVICE_EVENTGROUP_UDP_ID);
         app_->request_event(bench_globals::BENCH_SERVICE_SERVICE_ID,
                             bench_globals::BENCH_SERVICE_INSTANCE_ID,
-                            bench_globals::BENCH_SERVICE_EVENT_ID,
+                            bench_globals::BENCH_SERVICE_EVENT_UDP_ID,
                             its_groups, false);
         app_->request_event(bench_globals::BENCH_SERVICE_SERVICE_ID,
                             bench_globals::BENCH_SERVICE_INSTANCE_ID,
@@ -64,7 +64,7 @@ void bench_publish_subscribe_subscriber::on_state(vsomeip::state_type_e _state) 
 
         app_->subscribe(bench_globals::BENCH_SERVICE_SERVICE_ID,
                         bench_globals::BENCH_SERVICE_INSTANCE_ID,
-                        bench_globals::BENCH_SERVICE_EVENTGROUP_ID,
+                        bench_globals::BENCH_SERVICE_EVENTGROUP_UDP_ID,
                         vsomeip::DEFAULT_MAJOR, vsomeip::subscription_type_e::SU_UNRELIABLE);
     }
 }

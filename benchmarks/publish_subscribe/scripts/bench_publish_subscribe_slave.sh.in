@@ -4,9 +4,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-if [[ $# -ne 6 ]]
+if [[ $# -ne 4 ]]
 then
-	echo "Usage: $0 dir lib_dir conf_dir log_dir log_name messages_to_send"
+	echo "Usage: $0 dir lib_dir conf_dir log_dir"
 	exit 1
 fi
 
@@ -14,8 +14,6 @@ DIR=$1
 LIB_DIR=$2
 CONF_DIR=$3
 LOG_DIR=$4
-LOG_NAME=$5
-MESSAGES=$6
 
 cd "${DIR}"
 export LD_LIBRARY_PATH="${LIB_DIR}"

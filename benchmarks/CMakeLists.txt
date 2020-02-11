@@ -137,6 +137,51 @@ copy_to_builddir(${BENCH_PUBLISH_SUBSCRIBE_FOLDER}/scripts/bench_publish_subscri
         ${BENCH_OUTPUT}/bench_publish_subscribe_master.sh bench_publish_subscribe_subscriber)
 
 ##############################################################################
+# throughput benchmarks
+##############################################################################
+
+set(BENCH_THROUGHPUT_FOLDER ${PROJECT_SOURCE_DIR}/benchmarks/throughput)
+
+add_executable(bench_throughput_publisher common/bench_measurer.cpp throughput/bench_throughput_publisher.cpp)
+target_link_libraries(bench_throughput_publisher vsomeip)
+
+configure_file(
+        ${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_publisher.json.in
+        ${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_publisher.json
+        @ONLY)
+sign_configuration(${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_publisher.json
+        ${CRYPTO_CONFIGURATION_SIGNATURE_KEY} ${OPENSSL_LOG} ${CRYPTO_LOCK})
+copy_to_builddir(${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_publisher.json
+        ${BENCH_CONFIG_OUTPUT}/bench_throughput_publisher.json bench_throughput_publisher)
+
+configure_file(
+        ${BENCH_THROUGHPUT_FOLDER}/scripts/bench_throughput_slave.sh.in
+        ${BENCH_THROUGHPUT_FOLDER}/scripts/bench_throughput_slave.sh
+        @ONLY)
+copy_to_builddir(${BENCH_THROUGHPUT_FOLDER}/scripts/bench_throughput_slave.sh
+        ${BENCH_OUTPUT}/bench_throughput_slave.sh bench_throughput_publisher)
+
+
+add_executable(bench_throughput_subscriber common/bench_measurer.cpp throughput/bench_throughput_subscriber.cpp)
+target_link_libraries(bench_throughput_subscriber vsomeip)
+
+configure_file(
+        ${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_subscriber.json.in
+        ${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_subscriber.json
+        @ONLY)
+sign_configuration(${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_subscriber.json
+        ${CRYPTO_CONFIGURATION_SIGNATURE_KEY} ${OPENSSL_LOG} ${CRYPTO_LOCK})
+copy_to_builddir(${BENCH_THROUGHPUT_FOLDER}/conf/bench_throughput_subscriber.json
+        ${BENCH_CONFIG_OUTPUT}/bench_throughput_subscriber.json bench_throughput_subscriber)
+
+configure_file(
+        ${BENCH_THROUGHPUT_FOLDER}/scripts/bench_throughput_master.sh.in
+        ${BENCH_THROUGHPUT_FOLDER}/scripts/bench_throughput_master.sh
+        @ONLY)
+copy_to_builddir(${BENCH_THROUGHPUT_FOLDER}/scripts/bench_throughput_master.sh
+        ${BENCH_OUTPUT}/bench_throughput_master.sh bench_throughput_subscriber)
+
+##############################################################################
 # session-establishment benchmarks
 ##############################################################################
 
@@ -189,10 +234,21 @@ add_dependencies(build_benchmarks bench_request_response_client)
 add_dependencies(build_benchmarks bench_request_response_service)
 add_dependencies(build_benchmarks bench_publish_subscribe_publisher)
 add_dependencies(build_benchmarks bench_publish_subscribe_subscriber)
+add_dependencies(build_benchmarks bench_throughput_publisher)
+add_dependencies(build_benchmarks bench_throughput_subscriber)
 add_dependencies(build_benchmarks bench_session_establishment_client)
 add_dependencies(build_benchmarks bench_session_establishment_service)
 
 copy_to_builddir(${PROJECT_SOURCE_DIR}/benchmarks/run_runtime_protection_benchmarks.sh
         ${BENCH_OUTPUT}/run_runtime_protection_benchmarks.sh build_benchmarks)
+copy_to_builddir(${PROJECT_SOURCE_DIR}/benchmarks/run_throughput_benchmarks.sh
+        ${BENCH_OUTPUT}/run_throughput_benchmarks.sh build_benchmarks)
 copy_to_builddir(${PROJECT_SOURCE_DIR}/benchmarks/run_session_establishment_benchmarks.sh
         ${BENCH_OUTPUT}/run_session_establishment_benchmarks.sh build_benchmarks)
+
+configure_file(
+        ${PROJECT_SOURCE_DIR}/benchmarks/run_iperf3_throughput_benchmarks.sh.in
+        ${PROJECT_SOURCE_DIR}/benchmarks/run_iperf3_throughput_benchmarks.sh
+        @ONLY)
+copy_to_builddir(${PROJECT_SOURCE_DIR}/benchmarks/run_iperf3_throughput_benchmarks.sh
+        ${BENCH_OUTPUT}/run_iperf3_throughput_benchmarks.sh build_benchmarks)

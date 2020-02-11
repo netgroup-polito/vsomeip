@@ -3,8 +3,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#ifndef BENCH_PUBLISH_SUBSCRIBE_PUBLISHER_HPP
-#define BENCH_PUBLISH_SUBSCRIBE_PUBLISHER_HPP
+#ifndef THROUGHPUT_PUBLISHER_HPP
+#define THROUGHPUT_PUBLISHER_HPP
 
 #include <vsomeip/vsomeip.hpp>
 
@@ -14,15 +14,15 @@
 
 class bench_measurer;
 
-class bench_publish_subscribe_publisher {
+class throughput_publisher {
 public:
-    bench_publish_subscribe_publisher(uint32_t _number_messages, bool _shutdown_service_at_end);
+    throughput_publisher(uint32_t _transfer_size, uint32_t _payload_size_udp, uint32_t _payload_size_tcp);
 
     bool init();
     void start();
 
 private:
-    void send();
+    void unlock();
     void run();
 
     void stop();
@@ -34,29 +34,35 @@ private:
                        const std::shared_ptr<vsomeip::payload> &_payload);
 
     void on_state(vsomeip::state_type_e _state);
-    bool on_subscription(vsomeip::client_t _client, bool _is_subscribed);
+    bool on_subscription(vsomeip::client_t _client, bool _is_subscribed, bool _use_tcp);
     void on_message(const std::shared_ptr<vsomeip::message> &_response);
 
 private:
     std::shared_ptr<vsomeip::application> app_;
 
-    const std::uint32_t number_of_messages_to_send_;
-    const bool shutdown_service_at_end_;
+    const std::uint32_t payload_size_udp_;
+    const std::uint32_t payload_size_tcp_;
+    const std::uint32_t transfer_size_;
 
-    bool blocked_;
+    vsomeip::event_t event_;
+    std::uint32_t payload_size_;
+    std::uint32_t number_of_messages_to_send_;
+
+    bool running_;
+    bool transmit_;
     bool error_;
     bool is_available_;
     bool is_subscribed_;
 
-    bool msg_acknowledged_;
+    bool all_msg_acknowledged_;
 
     std::thread sender_thread_;
 
     std::mutex send_mutex_;
     std::condition_variable send_cv_;
 
-    std::mutex msg_acknowledged_mutex_;
-    std::condition_variable msg_acknowledged_cv_;
+    std::mutex all_msg_acknowledged_mutex_;
+    std::condition_variable all_msg_acknowledged_cv_;
 };
 
-#endif /* BENCH_PUBLISH_SUBSCRIBE_PUBLISHER_HPP */
+#endif /* THROUGHPUT_PUBLISHER_HPP */

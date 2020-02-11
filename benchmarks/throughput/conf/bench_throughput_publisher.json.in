@@ -1,21 +1,21 @@
 {
    "unicast" : "@BENCH_IP_MASTER@",
-   "logging" : 
+   "logging" :
    {
       "level" : "debug",
       "console" : "true",
       "dlt" : "false"
    },
 
-   "applications" : 
+   "applications" :
    [
       {
-         "name" : "bench_publish_subscribe_publisher",
+         "name" : "bench_throughput_publisher",
          "id" : "0x2001"
       }
    ],
 
-    "services" : 
+   "services" :
    [
       {
          "service" : "0x1234",
@@ -29,41 +29,41 @@
          "events" :
          [
             {
-               "event" : "0x8771",
-               "is_field" : "false"
+                "event" : "0x8771",
+                "is_field" : "false"
             },
             {
-               "event" : "0x8772",
-               "is_field" : "false",
-               "is_reliable" : "true"
+                "event" : "0x8772",
+                "is_field" : "false",
+                "is_reliable" : "true"
             },
             {
-               "event" : "0x8779",
-               "is_field" : "false"
+                "event" : "0x8779",
+                "is_field" : "false"
             }
          ],
          "eventgroups" :
          [
             {
-               "eventgroup" : "0x4465",
-               "events" : [ "0x8771", "0x8779" ],
-               "multicast" :
-               {
-                  "address" : "224.225.226.233",
-                  "port" : "32344"
-               },
-               "threshold" : "1"
+                "eventgroup" : "0x4465",
+                "events" : [ "0x8771", "0x8779" ],
+                "multicast" :
+                {
+                    "address" : "224.225.226.233",
+                    "port" : "32344"
+                },
+                "threshold" : "1"
             },
             {
-               "eventgroup" : "0x4466",
-               "events" : [ "0x8772" ]
+                "eventgroup" : "0x4466",
+                "events" : [ "0x8772" ]
             }
          ]
       }
    ],
 
-   "routing" : "bench_publish_subscribe_publisher",
-   "service-discovery" : 
+   "routing" : "bench_throughput_publisher",
+   "service-discovery" :
    {
       "enable" : "true",
       "multicast" : "224.0.0.1",

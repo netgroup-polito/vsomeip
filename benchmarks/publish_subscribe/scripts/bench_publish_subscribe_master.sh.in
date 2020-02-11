@@ -33,7 +33,7 @@ SERVICE_PID=$!
 sleep 1;
 
 echo "> Starting the remote client..."
-REMOTE_COMMAND="${REMOTE_PATH}/bench_publish_subscribe_slave.sh ${REMOTE_PATH} ${LIB_DIR} ${CONF_DIR} ${LOG_DIR} ${LOG_NAME} ${MESSAGES}"
+REMOTE_COMMAND="${REMOTE_PATH}/bench_publish_subscribe_slave.sh ${REMOTE_PATH} ${LIB_DIR} ${CONF_DIR} ${LOG_DIR}"
 ssh @BENCH_IP_SLAVE@ "${REMOTE_COMMAND} </dev/null >/dev/null 2>&1 &"
 
 # Wait until service is finished

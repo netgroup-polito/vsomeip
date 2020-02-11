@@ -12,7 +12,7 @@
 #define VSOMEIP_MAX_LOCAL_MESSAGE_SIZE          0
 // 0 = unlimited, if not specified otherwise via configuration file
 #define VSOMEIP_MAX_TCP_MESSAGE_SIZE            0
-#define VSOMEIP_MAX_UDP_MESSAGE_SIZE            1416
+#define VSOMEIP_MAX_UDP_MESSAGE_SIZE            1472
 
 #define VSOMEIP_PACKET_SIZE                     VSOMEIP_MAX_UDP_MESSAGE_SIZE
 

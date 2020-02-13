@@ -44,7 +44,18 @@
       "certificates-path" : "@CRYPTO_CERTIFICATES_FOLDER_RELATIVE@",
       "root-certificate-fingerprint" : "@CRYPTO_ROOT_CA_CERTIFICATE@",
       "private-key-path" : "@CRYPTO_CHOSEN_KEY_RELATIVE@",
-      "certificate-fingerprint" : "@CRYPTO_CHOSEN_CERTIFICATE@"
+      "certificate-fingerprint" : "@CRYPTO_CHOSEN_CERTIFICATE@",
+      "default-algorithms" :
+      [
+         {
+            "security-level" : "authentication",
+            "security-algorithm" : "@CONFIGURATION_CRYPTO_ALGORITHM@"
+         },
+         {
+            "security-level" : "confidentiality",
+            "security-algorithm" : "@CONFIGURATION_CRYPTO_ALGORITHM@"
+         }
+      ]
    },
    "configuration-security" :
    {

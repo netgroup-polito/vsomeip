@@ -355,6 +355,12 @@ else()
     message(STATUS "Configured security level: ${CONFIGURATION_SECURITY_LEVEL_UC}")
 endif()
 
+if(NOT CONFIGURATION_CRYPTO_ALGORITHM)
+    set(CONFIGURATION_CRYPTO_ALGORITHM "chacha20-poly1305-256" CACHE STRING
+            "The crypto algorithm selected for authentication and confidentiality levels")
+endif()
+message(STATUS "Configured crypto algorithm: ${CONFIGURATION_CRYPTO_ALGORITHM}")
+
 # Generate the cryptographic material
 set(CRYPTO_BASE_PATH "${PROJECT_SOURCE_DIR}/crypto")
 set(CRYPTO_GENERATED_PATH "${CRYPTO_BASE_PATH}/generated")

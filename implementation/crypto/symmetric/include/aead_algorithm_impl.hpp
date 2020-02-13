@@ -28,7 +28,7 @@ namespace vsomeip {
  * crypto_instance_id (two bytes) and an eight bytes counter.
  */
 class aead_algorithm_impl : public mac_algorithm, public aead_algorithm {
-private:
+protected:
     /// \brief The length of the IV in bits.
     const static size_t IV_LENGTH_BIT = 96;
     /// \brief The length of the IV in bytes.
@@ -97,7 +97,7 @@ public:
 
     bool add_allowed_peer(crypto_instance_t _instance_id) override;
 
-private:
+protected:
     /**
      * \brief Increments the initialization vector, which needs to be different
      * for each encryption/signature.
@@ -140,7 +140,7 @@ private:
      */
     void update_decipher_counter(crypto_instance_t _instance_id, counter_t _counter);
 
-private:
+protected:
     const EVP_CIPHER_CTX_ptr context_;
     const EVP_CIPHER *const cipher_;
 
@@ -151,7 +151,7 @@ private:
     counter_t encipher_counter_;
     std::map<uint32_t, counter_history_t> decipher_counters;
 
-private:
+protected:
     /**
      * \brief Computes the difference between two counter values.
      *

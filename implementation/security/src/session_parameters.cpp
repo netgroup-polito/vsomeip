@@ -10,6 +10,7 @@
 #include "../../crypto/asymmetric/include/asymmetric_crypto_private.hpp"
 #include "../../crypto/asymmetric/include/asymmetric_crypto_public.hpp"
 #include "../../crypto/random/include/random.hpp"
+#include "../../crypto/symmetric/include/aes_ccm.hpp"
 #include "../../crypto/symmetric/include/aes_gcm.hpp"
 #include "../../crypto/symmetric/include/chacha20_poly1305.hpp"
 
@@ -24,6 +25,11 @@ static size_t get_key_length(crypto_algorithm _algorithm) {
             return aes_gcm<aes_key_length::AES_128>::KEY_LENGTH;
         case crypto_algorithm::CA_AES_GCM_256:
             return aes_gcm<aes_key_length::AES_256>::KEY_LENGTH;
+
+        case crypto_algorithm::CA_AES_CCM_128:
+            return aes_ccm<aes_key_length::AES_128>::KEY_LENGTH;
+        case crypto_algorithm::CA_AES_CCM_256:
+            return aes_ccm<aes_key_length::AES_256>::KEY_LENGTH;
 
         case crypto_algorithm::CA_INVALID:
         case crypto_algorithm::CA_NULL:
@@ -114,6 +120,11 @@ std::unique_ptr<mac_algorithm> session_parameters::get_mac_algorithm() const {
         case crypto_algorithm::CA_AES_GCM_256:
             return std::unique_ptr<mac_algorithm>(new aes_gcm<aes_key_length::AES_256>(key_, instance_id_));
 
+        case crypto_algorithm::CA_AES_CCM_128:
+            return std::unique_ptr<mac_algorithm>(new aes_ccm<aes_key_length::AES_128>(key_, instance_id_));
+        case crypto_algorithm::CA_AES_CCM_256:
+            return std::unique_ptr<mac_algorithm>(new aes_ccm<aes_key_length::AES_256>(key_, instance_id_));
+
         case crypto_algorithm::CA_INVALID:
         case crypto_algorithm::CA_NULL:
             return std::unique_ptr<mac_algorithm>();
@@ -130,6 +141,11 @@ std::unique_ptr<aead_algorithm> session_parameters::get_aead_algorithm() const {
             return std::unique_ptr<aead_algorithm>(new aes_gcm<aes_key_length::AES_128>(key_, instance_id_));
         case crypto_algorithm::CA_AES_GCM_256:
             return std::unique_ptr<aead_algorithm>(new aes_gcm<aes_key_length::AES_256>(key_, instance_id_));
+
+        case crypto_algorithm::CA_AES_CCM_128:
+            return std::unique_ptr<aead_algorithm>(new aes_ccm<aes_key_length::AES_128>(key_, instance_id_));
+        case crypto_algorithm::CA_AES_CCM_256:
+            return std::unique_ptr<aead_algorithm>(new aes_ccm<aes_key_length::AES_256>(key_, instance_id_));
 
         case crypto_algorithm::CA_INVALID:
         case crypto_algorithm::CA_NULL:

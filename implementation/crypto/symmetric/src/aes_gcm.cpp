@@ -13,7 +13,7 @@ namespace vsomeip {
 template class aes_gcm<aes_key_length::AES_128>;
 template class aes_gcm<aes_key_length::AES_256>;
 
-const EVP_CIPHER *get_cipher(const aes_key_length _key_length) {
+const EVP_CIPHER *get_cipher_gcm(const aes_key_length _key_length) {
     return aes_key_length::AES_128 == _key_length
            ? EVP_aes_128_gcm()
            : EVP_aes_256_gcm();
@@ -21,7 +21,7 @@ const EVP_CIPHER *get_cipher(const aes_key_length _key_length) {
 
 template<aes_key_length AES_KEY_LENGTH>
 aes_gcm<AES_KEY_LENGTH>::aes_gcm(secure_vector<byte_t> _key, crypto_instance_t _instance_id)
-        : aead_algorithm_impl(get_cipher(AES_KEY_LENGTH), std::move(_key), TAG_LENGTH, _instance_id) {
+        : aead_algorithm_impl(get_cipher_gcm(AES_KEY_LENGTH), std::move(_key), TAG_LENGTH, _instance_id) {
 }
 
 } // namespace vsomeip

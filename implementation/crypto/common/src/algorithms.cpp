@@ -51,6 +51,10 @@ std::ostream &operator<<(std::ostream &_os, crypto_algorithm _crypto_algorithm) 
             return _os << "aes-gcm-128";
         case crypto_algorithm::CA_AES_GCM_256:
             return _os << "aes-gcm-256";
+        case crypto_algorithm::CA_AES_CCM_128:
+            return _os << "aes-ccm-128";
+        case crypto_algorithm::CA_AES_CCM_256:
+            return _os << "aes-ccm-256";
         case crypto_algorithm::CA_INVALID:
             return _os << "invalid";
     }
@@ -70,6 +74,10 @@ std::istream &operator>>(std::istream &_is, crypto_algorithm &_crypto_algorithm)
         _crypto_algorithm = crypto_algorithm::CA_AES_GCM_128;
     } else if ("aes-gcm-256" == its_crypto_algorithm) {
         _crypto_algorithm = crypto_algorithm::CA_AES_GCM_256;
+    } else if ("aes-ccm-128" == its_crypto_algorithm) {
+        _crypto_algorithm = crypto_algorithm::CA_AES_CCM_128;
+    } else if ("aes-ccm-256" == its_crypto_algorithm) {
+        _crypto_algorithm = crypto_algorithm::CA_AES_CCM_256;
     } else {
         _crypto_algorithm = crypto_algorithm::CA_INVALID;
     }

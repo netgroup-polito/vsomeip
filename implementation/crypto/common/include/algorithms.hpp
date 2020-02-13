@@ -29,6 +29,8 @@ enum class crypto_algorithm : uint8_t {
     CA_CHACHA20_POLY1305_256 = 0x21,               ///< \brief CHACHA20-POLY1305 (256 bits key).
     CA_AES_GCM_128 = 0x22,                         ///< \brief AES-GCM (128 bits key).
     CA_AES_GCM_256 = 0x23,                         ///< \brief AES-GCM (256 bits key).
+    CA_AES_CCM_128 = 0x24,                         ///< \brief AES-CCM (128 bits key).
+    CA_AES_CCM_256 = 0x25,                         ///< \brief AES-CCM (256 bits key).
 };
 
 /// \brief The enumeration of the key lengths available for AES-based algorithms.
@@ -75,7 +77,9 @@ struct crypto_algorithm_packed {
                (security_level::SL_NOSEC != security_level_ && (
                        crypto_algorithm::CA_CHACHA20_POLY1305_256 == crypto_algorithm_ ||
                        crypto_algorithm::CA_AES_GCM_128 == crypto_algorithm_ ||
-                       crypto_algorithm::CA_AES_GCM_256 == crypto_algorithm_));
+                       crypto_algorithm::CA_AES_GCM_256 == crypto_algorithm_ ||
+                       crypto_algorithm::CA_AES_CCM_128 == crypto_algorithm_ ||
+                       crypto_algorithm::CA_AES_CCM_256 == crypto_algorithm_));
     }
 };
 

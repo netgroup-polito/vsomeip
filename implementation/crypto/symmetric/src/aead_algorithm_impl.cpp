@@ -201,7 +201,7 @@ bool aead_algorithm_impl::decipher(const byte_t *_data, size_t _size, size_t _as
             /* Finalization (no data written) */
             1 == EVP_DecryptFinal_ex(context_.get(), &(*confidential_output_ptr), &out_length) && 0 == out_length;
 
-    success &= 1 == EVP_CIPHER_CTX_reset(context_.get());
+    success = 1 == EVP_CIPHER_CTX_reset(context_.get()) && success;
 
     if (success) {
         update_decipher_counter(instance_id, counter);

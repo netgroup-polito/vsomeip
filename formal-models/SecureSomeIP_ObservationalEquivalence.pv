@@ -1,0 +1,180 @@
+(* Types Definition                                                             *)
+type key.     (* Symmetric key                                                  *)
+type skey.    (* Private key                                                    *)
+type pkey.    (* Public key                                                     *)
+type cert.    (* Digital certificate                                            *)
+type nonce.   (* Random nonce                                                   *)
+type srvid.   (* Service ID                                                     *)
+type peerid.  (* Peer ID                                                        *)
+type iv.      (* Initialization Vector                                          *)
+
+(* Construct an Initialization Vector                                           *)
+fun initialization_vector(peerid, nonce): iv [data].
+letfun generate_iv(p: peerid) = new n: nonce; initialization_vector(p, n).
+
+(* Symmetric Authenticated Encryption without IV                                *)
+fun senc_noiv(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec_noiv(senc_noiv(m, k), k) = m.
+
+(* Symmetric Authenticated Encryption with IV                                   *)
+(* The pair message, iv is returned only if the key is correct                  *)
+(* Since the iv is not encrypted, an attacker can also obtain it                *)
+fun senc(bitstring, iv, key): bitstring.
+reduc forall m: bitstring, i: iv, k: key; sdec(senc(m, i, k), k) = (m, i).
+reduc forall m: bitstring, i: iv, k: key; sdec_getiv(senc(m, i, k)) = i.
+
+(* Asymmetric Key Pair                                                          *)
+fun pk(skey): pkey.
+
+(* Probabilistic Asymmetric Encryption                                          *)
+fun internal_aenc(bitstring, pkey, nonce): bitstring.
+letfun aenc(m: bitstring, k: pkey) = new n: nonce; internal_aenc(m, k, n).
+reduc forall m: bitstring, k: skey, n: nonce;
+  adec(internal_aenc(m, pk(k), n), k) = m.
+
+(* Probabilistic Digital Signature (not leaking the message)                    *)
+fun internal_sign(bitstring, skey, nonce): bitstring.
+letfun sign(m: bitstring, k: skey) = new n: nonce; internal_sign(m, k, n).
+reduc forall m: bitstring, k: skey, n: nonce;
+  check_sign(m, internal_sign(m, k, n), pk(k)) = true.
+
+(* Digital Certificates *)
+(* The function issue_cert is private to model the fact that an attacker cannot *)
+(* forge digital certificates (since they are signed by trusted authorities)    *)
+(* Note: here, we are not modeling chains of digital certificates.              *)
+fun issue_cert(pkey, srvid, bool): cert [private].
+(* Issue a certificate associated to an offerer                                 *)
+letfun issue_off_cert(k: pkey, s: srvid) = issue_cert(k, s, true).
+(* Issue a certificate associated to a requester                                *)
+letfun issue_req_cert(k: pkey, s: srvid) = issue_cert(k, s, false).
+
+(* Allow obtaining the elements contained within the certificate                *)
+reduc forall k: pkey, s: srvid, t: bool;
+  unpack_cert(issue_cert(k, s, t)) = (k, s, t).
+(* Verify the validity of an offerer certificate                                *)
+reduc forall k: pkey, s: srvid; verify_off_cert(issue_cert(k, s, true), s) = k.
+(* Verify the validity of a requester certificate                               *)
+reduc forall k: pkey, s: srvid; verify_req_cert(issue_cert(k, s, false), s) = k.
+
+(* Type converters                                                              *)
+fun key2bit(key): bitstring [data,typeConverter].
+
+
+(* Names Definitions                                                            *)
+free chan: channel.
+free msg: bitstring [private].
+
+
+(* Application offering a service                                               *)
+let offererA(srv: srvid, certA: cert, skA: skey) =
+
+  (* Generate the random symmetric key used to secure run-time communications   *)
+  new srvkey: key;
+
+  (* Replication to model multiple requesters accessing the same service        *)
+  !
+
+  (* ===== Here the authentication handshake begins =====                       *)
+  (* Receive the request and check if the service ID is correct                 *)
+  in(chan, (=srv, n: nonce, certB: cert));
+  (* Check the validity of the requester certificate and extract its public key *)
+  let pkB = verify_req_cert(certB, srv) in
+  (* Generate a new peer ID to identify the communication party                 *)
+  new peer: peerid;
+  (* Encrypt the service key with the public key of the requester               *)
+  let enckey = aenc(key2bit(srvkey), pkB) in
+  (* Construct the response: service ID, nonce, offerer certificate,            *)
+  (* peer ID and encrypted service key                                          *)
+  let response = (srv, n, certA, peer, enckey) in
+  (* Sign the response with the offerer private key                             *)
+  let signature = sign(response, skA) in
+
+  (* Output the response and the corresponding signature                        *)
+  out (chan, (response, signature));
+  (* ===== Here the authentication handshake terminates =====                   *)
+
+  (* ===== Here the run-time communication begins =====                         *)
+  (* Input the message used to verify the client authentication                 *)
+  in(chan, encmsg: bitstring);
+  (* Authenticate/decrypt the message using the symmetric key                   *)
+  let (rcvmsg: bitstring, msgiv: iv) = sdec(encmsg, srvkey) in
+  let initialization_vector(=peer, ivnonce: nonce) = msgiv in
+  (*** let rcvmsg = sdec(encmsg, srvkey) in                                   ***)
+  (* ===== Here the run-time communication ends =====                           *)
+
+  (* End                                                                        *)
+  0.
+
+
+(* Application requesting a service                                             *)
+let requesterB(srv: srvid, certB: cert, skB: skey) =
+
+  (* ===== Here the authentication handshake begins =====                       *)
+  (* Create a new nonce to associate a request to the response                  *)
+  new n: nonce;
+  (* Output the request: service ID, nonce, requester certificate               *)
+  out(chan, (srv, n, certB));
+  (* Receive the response and the corresponding signature                       *)
+  in(chan, (response: bitstring, signature: bitstring));
+  (* Unpack the response and check if the service ID and nonce are correct      *)
+  let (=srv, =n, certA: cert, id: peerid, enckey: bitstring) = response in
+  (* Check the validity of the offerer certificate and extract the public key   *)
+  let pkA = verify_off_cert(certA, srv) in
+  (* Check the validity of the digital signature                                *)
+  let (=true) = check_sign(response, signature, pkA) in
+  (* Decrypt the symmetric key using the requester private key                  *)
+  let key2bit(rcvkey) = adec(enckey, skB) in
+  (* ===== Here the authentication handshake terminates =====                   *)
+
+  (* ===== Here the run-time communication begins =====                         *)
+  (* Now, the requester sends a message to the offerer using the received       *)
+  (* service key to prove it correctly obtained it; thus client authentication  *)
+  (* is verified.                                                               *)
+  (* Compute a new IV                                                           *)
+  let msgiv = generate_iv(id) in
+  (* Create a random message (rndmsg) to test whether an attacker can           *)
+  (* distinguish the message msg from rndmsg                                    *)
+  new rndmsg: bitstring;
+  (* Use the service key to authenticate/encrypt a message                      *)
+  let encmsg = senc(choice[msg, rndmsg], msgiv, rcvkey) in
+  (*** let encmsg = senc_noiv(choice[msg, rndmsg], rcvkey) in                 ***)
+  (* Send the message to the offerer                                            *)
+  out(chan, encmsg);
+  (* ===== Here the run-time communication ends =====                           *)
+
+  (* End                                                                        *)
+  0.
+
+
+(* Main process *)
+process
+  (* Initialize the elements associated with the legitimate service             *)
+  new srv: srvid;       (* Identifier of the service to be offered/requested    *)
+  out(chan, srv);       (* Make it available to the attacker                    *)
+
+  new skA: skey;        (* Private key associated with the offerer              *)
+  let pkA = pk(skA) in  (* Public key associated with the offerer               *)
+  let certA = issue_off_cert(pkA, srv) in (* Offerer digital certificate        *)
+  out (chan, certA);    (* Make it available to the attacker                    *)
+
+  new skB: skey;        (* Private key associated with the requester            *)
+  let pkB = pk(skB) in  (* Public key associated with the requester             *)
+  let certB = issue_req_cert(pkB, srv) in (* Requester digital certificate      *)
+  out (chan, certB);    (* Make it available to the attacker                    *)
+
+
+  (* Send to the attacker a valid pair (private key, certificate) for a         *)
+  (* different service, to verify he cannot use it to access the legitimate one *)
+  new srvatt: srvid;    (* Identifier of the service accessed by the attacker   *)
+  out(chan, srvatt);    (* Make it available to the attacker                    *)
+
+  new skM: skey;        (* Private key associated with the attacker             *)
+  out (chan, skM);      (* Make it available to the attacker                    *)
+  let pkM = pk(skM) in  (* Public key associated with the attacker              *)
+  let certM1 = issue_off_cert(pkM, srvatt) in (* Attacker digital certificate 1 *)
+  out (chan, certM1);   (* Make it available to the attacker                    *)
+  let certM2 = issue_req_cert(pkM, srvatt) in (* Attacker digital certificate 2 *)
+  out (chan, certM2);   (* Make it available to the attacker                    *)
+
+  (* Run the authentication handshakes (multiple instances in parallel)         *)
+  ( (!offererA(srv, certA, skA)) | (!requesterB(srv, certB, skB)) )

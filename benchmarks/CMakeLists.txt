@@ -47,21 +47,21 @@ add_executable(bench_request_response_client common/bench_measurer.cpp request_r
 target_link_libraries(bench_request_response_client vsomeip)
 
 configure_file(
-        ${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_local.json.in
-        ${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_local.json
+        /tmp/vsomeip/secure-vsomeip/benchmarks/conf/bench_request_response_client_local.json.in
+        /tmp/vsomeip/secure-vsomeip/benchmarks//conf/bench_request_response_client_local.json
         @ONLY)
-sign_configuration(${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_local.json
+sign_configuration(/tmp/vsomeip/secure-vsomeip/benchmarks/conf/bench_request_response_client_local.json
         ${CRYPTO_CONFIGURATION_SIGNATURE_KEY} ${OPENSSL_LOG} ${CRYPTO_LOCK})
-copy_to_builddir(${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_local.json
+copy_to_builddir(/tmp/vsomeip/secure-vsomeip/benchmarks/conf/bench_request_response_client_local.json
         ${BENCH_CONFIG_OUTPUT}/bench_request_response_client_local.json bench_request_response_client)
 
 configure_file(
-        ${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_external.json.in
-        ${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_external.json
+        /tmp/vsomeip/secure-vsomeip/benchmarks/conf/bench_request_response_client_external.json.in
+        /tmp/vsomeip/secure-vsomeip/benchmarks/conf/bench_request_response_client_external.json
         @ONLY)
-sign_configuration(${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_external.json
+sign_configuration(/tmp/vsomeip/secure-vsomeip/benchmarks/conf/bench_request_response_client_external.json
         ${CRYPTO_CONFIGURATION_SIGNATURE_KEY} ${OPENSSL_LOG} ${CRYPTO_LOCK})
-copy_to_builddir(${BENCH_REQUEST_RESPONSE_FOLDER}/conf/bench_request_response_client_external.json
+copy_to_builddir(/tmp/vsomeip/secure-vsomeip/benchmarks/conf/bench_request_response_client_external.json
         ${BENCH_CONFIG_OUTPUT}/bench_request_response_client_external.json bench_request_response_client)
 
 configure_file(

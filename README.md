@@ -55,6 +55,10 @@ unauthorized parties from accessing the exchanged information.
 Additional information concerning the configuration of the the different
 security functionalities can be found in the vsomeip user guide.
 
+## Acknowledgement
+The work on Secure SOME/IP has been carried out by Marco Iorio (Politecnico di 
+Torino), with the support of Italdesign Giugiaro (https://www.italdesign.it/).
+
 ## Build Instructions
 
 ### Dependencies
